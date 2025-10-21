@@ -1,0 +1,9 @@
+{
+  "name": "BinMate",
+  "short_name": "BinMate",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8F9F8",
+  "theme_color": "#5BC980",
+  "icons": []
+}

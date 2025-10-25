@@ -169,7 +169,7 @@ function Welcome({ onSignIn, onCreate }) {
       <div className="mt-16 mb-6 w-20 h-20 rounded-2xl bg-white shadow flex items-center justify-center text-3xl">
         ✅
       </div>
-      <h2 className="text-xl font-semibold mb-2" style={{ color: colors.slate }}>BinMate</h2>
+      <h2 className="text-xl font-semibold mb-2" style={{ color: colors.slate }}>FmyBins</h2>
       <p className="text-gray-600 mb-8">Your bins, handled automatically.</p>
 
       <div className="w-[360px] max-w-full p-5 bg-white rounded-2xl shadow">
@@ -298,7 +298,7 @@ function Dashboard({ onOpenSettings, data }) {
   return (
     <div className="min-h-screen bg-[#F8F9F8]">
       <div className="w-full flex items-center justify-between py-4 px-5 sticky top-0 bg-white/80 backdrop-blur z-10 border-b">
-        <h1 className="text-lg font-semibold" style={{ color: colors.slate }}>BinMate</h1>
+        <h1 className="text-lg font-semibold" style={{ color: colors.slate }}>FmyBins</h1>
         <button onClick={onOpenSettings} className="text-sm px-3 py-1 rounded-full border">Settings</button>
       </div>
 
@@ -352,11 +352,11 @@ function Settings({ onBack }) {
 export default function App() {
   const [screen, setScreen] = useState("welcome");
   const [profile, setProfile] = useState(() => {
-  try { return JSON.parse(localStorage.getItem("binmate_profile") || "{}"); }
+  try { return JSON.parse(localStorage.getItem("FmyBins_profile") || "{}"); }
   catch { return {}; }
 });
 React.useEffect(() => {
-  try { localStorage.setItem("binmate_profile", JSON.stringify(profile)); } catch {}
+  try { localStorage.setItem("FmyBins_profile", JSON.stringify(profile)); } catch {}
 }, [profile]);
 
 

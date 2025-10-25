@@ -157,19 +157,27 @@ function WeekdaySelect({ value, onChange }) {
 
 function Welcome({ onSignIn, onCreate }) {
   return (
-    <div className="min-h-screen bg-brand-muted flex flex-col items-center">
-      <div className="mt-16 mb-6 w-20 h-20 rounded-2xl bg-white shadow-soft flex items-center justify-center text-3xl text-brand-fg">
-        ✅
-      </div>
-      <h2 className="text-xl font-semibold mb-2 text-brand-fg font-heading">FmyBins</h2>
-      <p className="text-gray-700 mb-8 font-body">
-        Your bins, sorted. <span className="font-semibold">Every bloody week.</span>
-      </p>
+    <div className="min-h-screen bg-brand-muted flex flex-col items-center justify-center text-center">
+      <img
+  src="/FmyBins_Logo_Transparent.png"
+  alt="FmyBins logo"
+  className="mt-12 mb-10 w-80 max-w-[90%] h-auto"
+/>
 
       <div className="w-[360px] max-w-full p-5 bg-white rounded-2xl shadow-soft">
-        <PrimaryButton onClick={onSignIn}>Sign In</PrimaryButton>
+        <button
+          onClick={onSignIn}
+          className="w-full h-12 rounded-xl bg-brand-dark text-white font-semibold hover:opacity-90 transition active:scale-[0.98]"
+        >
+          Sign In
+        </button>
         <div className="h-3" />
-        <SecondaryButton onClick={onCreate}>Create Account</SecondaryButton>
+        <button
+          onClick={onCreate}
+          className="w-full h-12 rounded-xl border border-gray-300 text-brand-fg font-semibold hover:bg-brand-muted transition"
+        >
+          Create Account
+        </button>
         <p className="text-[11px] text-gray-500 mt-4">
           By continuing, you agree this is an early access build.
         </p>

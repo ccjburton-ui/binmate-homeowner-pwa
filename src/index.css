@@ -2,12 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom font stack (falls back if SF Pro not available) */
 :root {
-  --slate: #2E3A3A;
-  --green: #5BC980;
+  --brand: #6DF56A;
+  --brand-dark: #34C759;
+  --text: #1E1E1E;
+  --muted: #F8F9F8;
 }
 
-body {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", "SF Pro Text", Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+html, body {
+  background: var(--muted);
+  color: var(--text);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Headings use Poppins */
+h1,h2,h3,.h1,.h2,.h3 {
+  font-family: Poppins, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }

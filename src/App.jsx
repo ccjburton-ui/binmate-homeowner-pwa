@@ -1,13 +1,5 @@
 import React, { useState } from "react";
 
-const colors = {
-  green: "#5BC980",
-  slate: "#2E3A3A",
-  light: "#F8F9F8",
-  blue: "#2F80ED",
-  red: "#E74C3C",
-};
-
 // Maps "Mon"..."Sun" to 1..7 (ISO: Mon=1)
 const dayIndex = d => ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].indexOf(d) + 1;
 
@@ -40,7 +32,7 @@ function Header({ title, onBack }) {
       >
         ← Back
       </button>
-      <h1 className="text-lg font-semibold" style={{ color: colors.slate }}>{title}</h1>
+      <h1 className="text-lg font-semibold text-brand-fg font-heading">FmyBins</h1>
       <div className="w-[60px]" />
     </div>
   );
@@ -52,8 +44,8 @@ function PrimaryButton({ children, onClick, disabled }) {
       onClick={onClick}
       disabled={disabled}
       className={`w-full h-12 rounded-xl text-white font-semibold transition active:scale-[0.98] ${
-        disabled ? "bg-gray-300" : "bg-[#5BC980] hover:opacity-90"
-      }`}
+  disabled ? "bg-gray-300" : "bg-brand-dark hover:opacity-90"
+}`}
     >
       {children}
     </button>
@@ -64,7 +56,7 @@ function SecondaryButton({ children, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full h-12 rounded-xl border border-gray-300 text-gray-800 font-semibold"
+      className="w-full h-12 rounded-xl border border-gray-300 text-brand-fg font-semibold hover:bg-brand-muted transition"
     >
       {children}
     </button>
@@ -80,7 +72,7 @@ function Input({ label, placeholder, type = "text", value, onChange }) {
         placeholder={placeholder}
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="w-full h-11 rounded-xl border border-gray-300 px-4 focus:outline-none focus:ring-2 focus:ring-[#5BC980]"
+        className="w-full h-11 rounded-xl border border-gray-300 px-4 focus:outline-none focus:ring-2 focus:ring-brand-dark"
       />
     </label>
   );
@@ -95,7 +87,7 @@ function TextArea({ label, placeholder, value, onChange }) {
         value={value}
         onChange={e => onChange(e.target.value)}
         rows={3}
-        className="w-full rounded-xl border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#5BC980]"
+        className="w-full rounded-xl border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-brand-dark"
       />
     </label>
   );
@@ -107,7 +99,7 @@ function Toggle({ label, checked, onChange }) {
       <span className="text-gray-800">{label}</span>
       <button
         onClick={() => onChange(!checked)}
-        className={`w-12 h-7 rounded-full p-1 transition ${checked ? "bg-[#5BC980]" : "bg-gray-300"}`}
+        className={`w-12 h-7 rounded-full p-1 transition ${checked ? "bg-brand-dark" : "bg-gray-300"}`}
       >
         <div className={`h-5 w-5 bg-white rounded-full transition ${checked ? "translate-x-5" : "translate-x-0"}`} />
       </button>
@@ -131,7 +123,7 @@ function BinChooser({ selected, onToggle }) {
             key={opt.key}
             onClick={() => onToggle(opt.key)}
             className={`aspect-square rounded-2xl flex flex-col items-center justify-center border text-center px-2 ${
-              isOn ? "border-[#5BC980] bg-[#E9F8F0]" : "border-gray-300 bg-white"
+              isOn ? "border-brand-dark bg-brand-muted" : "border-gray-300 bg-white"
             }`}
           >
             <div className={`text-2xl mb-1 ${isOn ? "" : "opacity-50"}`}>🗑️</div>
@@ -153,7 +145,7 @@ function WeekdaySelect({ value, onChange }) {
           <button
             key={d}
             onClick={() => onChange(d)}
-            className={`h-9 rounded-lg border text-sm ${value === d ? "bg-[#5BC980] text-white border-[#5BC980]" : "border-gray-300"}`}
+            className={`h-9 rounded-lg border text-sm ${value === d ? "bg-brand-dark text-white border-brand-dark" : "border-gray-300"}`}
           >
             {d}
           </button>
@@ -165,19 +157,21 @@ function WeekdaySelect({ value, onChange }) {
 
 function Welcome({ onSignIn, onCreate }) {
   return (
-    <div className="min-h-screen bg-[#F8F9F8] flex flex-col items-center">
-      <div className="mt-16 mb-6 w-20 h-20 rounded-2xl bg-white shadow flex items-center justify-center text-3xl">
+    <div className="min-h-screen bg-brand-muted flex flex-col items-center">
+      <div className="mt-16 mb-6 w-20 h-20 rounded-2xl bg-white shadow-soft flex items-center justify-center text-3xl text-brand-fg">
         ✅
       </div>
-      <h2 className="text-xl font-semibold mb-2" style={{ color: colors.slate }}>FmyBins</h2>
-      <p className="text-gray-600 mb-8">Your bins, handled automatically.</p>
+      <h2 className="text-xl font-semibold mb-2 text-brand-fg font-heading">FmyBins</h2>
+      <p className="text-gray-700 mb-8 font-body">
+        Your bins, sorted. <span className="font-semibold">Every bloody week.</span>
+      </p>
 
-      <div className="w-[360px] max-w-full p-5 bg-white rounded-2xl shadow">
+      <div className="w-[360px] max-w-full p-5 bg-white rounded-2xl shadow-soft">
         <PrimaryButton onClick={onSignIn}>Sign In</PrimaryButton>
         <div className="h-3" />
         <SecondaryButton onClick={onCreate}>Create Account</SecondaryButton>
         <p className="text-[11px] text-gray-500 mt-4">
-          By continuing, you agree to keep this early access build confidential.
+          By continuing, you agree this is an early access build.
         </p>
       </div>
     </div>
@@ -266,8 +260,8 @@ function PlanPayment({ onBack, onStart, data }) {
     <div className="min-h-screen bg-white">
       <Header title="Plan & Payment" onBack={onBack} />
       <div className="max-w-md mx-auto p-5">
-        <div className="rounded-2xl overflow-hidden shadow mb-4">
-          <div className="bg-[#5BC980] text-white px-5 py-3 text-lg font-semibold">Early Access — Weekly Out & Return</div>
+        <div className="rounded-2xl overflow-hidden shadow-soft mb-4">
+          <div className="bg-brand-dark text-white px-5 py-3 text-lg font-semibold">Early Access — Weekly Out & Return</div>
           <div className="bg-white px-5 py-4">
             <div className="text-2xl font-bold mb-1">$54.90<span className="text-base font-medium">/month</span></div>
             <ul className="text-sm text-gray-700 list-disc ml-5 space-y-1">
@@ -296,14 +290,14 @@ function Dashboard({ onOpenSettings, data }) {
   const nextService = formatServiceWindow(nextDt);
 
   return (
-    <div className="min-h-screen bg-[#F8F9F8]">
+    <div className="min-h-screen bg-brand-muted">
       <div className="w-full flex items-center justify-between py-4 px-5 sticky top-0 bg-white/80 backdrop-blur z-10 border-b">
-        <h1 className="text-lg font-semibold" style={{ color: colors.slate }}>FmyBins</h1>
+        <h1 className="text-lg font-semibold text-brand-fg font-heading">FmyBins</h1>
         <button onClick={onOpenSettings} className="text-sm px-3 py-1 rounded-full border">Settings</button>
       </div>
 
       <div className="max-w-md mx-auto p-5">
-        <div className="rounded-2xl p-5 bg-white shadow mb-4">
+        <div className="rounded-2xl p-5 bg-white shadow-soft mb-4">
           <div className="text-sm text-gray-600">Next Service</div>
           <div className="text-xl font-semibold mb-2">{nextService}</div>
           <div className="flex gap-2">
@@ -311,7 +305,7 @@ function Dashboard({ onOpenSettings, data }) {
             <button className="px-4 h-10 rounded-xl border">Edit Property</button>
           </div>
         </div>
-        <div className="rounded-2xl p-5 bg-white shadow">
+        <div className="rounded-2xl p-5 bg-white shadow-soft">
           <div className="text-sm text-gray-600 mb-3">Recent Photos</div>
           <div className="grid grid-cols-3 gap-2">
             {[1,2,3].map(n => (

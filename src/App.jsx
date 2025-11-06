@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import AddressSearch from "./components/AddressSearch.jsx";
 
 // Maps "Mon"..."Sun" to 1..7 (ISO: Mon=1)
 const dayIndex = d => ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].indexOf(d) + 1;
@@ -197,7 +198,17 @@ function AddProperty({ onBack, onNext, data, setData }) {
         <div className="w-full h-40 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 mb-4">
           Map Preview
         </div>
-        <Input label="Address" placeholder="e.g., 123 Jetty Rd, Rosebud VIC" value={addr} onChange={setAddr} />
+        <AddressSearch
+          label="Address"
+          value={addr}
+          onChange={setAddr}
+          onSelect={(picked) => {
+          // Save full picked data so we can schedule/routings later
+          setAddr(picked.label);
+          // If you want to persist to profile immediately:
+          // setData({ ...data, address: picked.label, geo: { lat: picked.lat, lon: picked.lon, suburb: picked.suburb, state: picked.state, postcode: picked.postcode } });
+          }}
+        />
         <div className="w-full h-28 rounded-2xl border border-dashed border-gray-300 text-gray-500 flex items-center justify-center mb-4">
           Upload bin location photo (optional)
         </div>

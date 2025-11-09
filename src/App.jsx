@@ -203,10 +203,10 @@ function AddProperty({ onBack, onNext, data, setData }) {
           value={addr}
           onChange={setAddr}
           onSelect={(picked) => {
-          // Save full picked data so we can schedule/routings later
-          setAddr(picked.label);
-          // If you want to persist to profile immediately:
-          // setData({ ...data, address: picked.label, geo: { lat: picked.lat, lon: picked.lon, suburb: picked.suburb, state: picked.state, postcode: picked.postcode } });
+            // store the human-readable label so it shows in the field
+            setAddr(picked.label);
+            // If you want to keep geo in profile immediately:
+            // setData({ ...data, address: picked.label, geo: { lat: picked.lat, lon: picked.lon }, suburb: picked.suburb, state: picked.state, postcode: picked.postcode });
           }}
         />
         <div className="w-full h-28 rounded-2xl border border-dashed border-gray-300 text-gray-500 flex items-center justify-center mb-4">

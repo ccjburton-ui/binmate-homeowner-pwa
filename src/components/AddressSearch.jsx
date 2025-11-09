@@ -1,95 +1,134 @@
-import React from "react";
+// src/components/AddressSearch.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const AU_PROXIMITY_MEL = [144.9631, -37.8136]; // bias toward Melbourne CBD (lon, lat)
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN; // MUST be set
 
-export default function AddressSearch({ label = "Address", value, onChange, onSelect }) {
-  const [query, setQuery] = React.useState(value || "");
-  const [items, setItems] = React.useState([]);
-  const [open, setOpen] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
-  const controllerRef = React.useRef(null);
-  const listRef = React.useRef(null);
+export default function AddressSearch({
+  label = "Address",
+  value,
+  onChange,           // (string) typed text
+  onSelect,           // ({ label, lat, lon, suburb, state, postcode }) chosen result
+  placeholder = "e.g., 123 Jetty Rd, Rosebud VIC",
+}) {
+  const [q, setQ] = useState(value || "");
+  const [items, setItems] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [highlight, setHighlight] = useState(-1);
+  const rootRef = useRef(null);
 
   // keep external value in sync if parent updates it
-  React.useEffect(() => { setQuery(value || ""); }, [value]);
+  useEffect(() => { setQ(value || ""); }, [value]);
 
-  React.useEffect(() => {
-    if (!query || query.trim().length < 3) { setItems([]); setOpen(false); return; }
+  // close on outside click
+  useEffect(() => {
+    function onDocClick(e) {
+      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
-    const run = async () => {
+  // debounced search
+  useEffect(() => {
+    if (!MAPBOX_TOKEN) {
+      console.warn("VITE_MAPBOX_TOKEN is missing.");
+      return;
+    }
+    const term = q?.trim();
+    if (!term || term.length < 3) {
+      setItems([]);
+      return;
+    }
+    const id = setTimeout(async () => {
       try {
-        setLoading(true);
-        if (controllerRef.current) controllerRef.current.abort();
-        controllerRef.current = new AbortController();
-
-        const url = new URL(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json`);
-        url.searchParams.set("autocomplete", "true");
-        url.searchParams.set("country", "au");
-        url.searchParams.set("types", "address,place,locality,neighborhood,postcode");
-        url.searchParams.set("limit", "6");
-        url.searchParams.set("proximity", AU_PROXIMITY_MEL.join(",")); // bias to VIC; adjust later per user GPS
-        url.searchParams.set("access_token", import.meta.env.VITE_MAPBOX_TOKEN);
-
-        const res = await fetch(url.toString(), { signal: controllerRef.current.signal });
-        if (!res.ok) throw new Error("geocode failed");
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
+          `${encodeURIComponent(term)}.json?` +
+          `autocomplete=true&country=AU&limit=5&access_token=${MAPBOX_TOKEN}`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-
-        const next = (data.features || []).map(f => ({
-          id: f.id,
-          label: f.place_name,
-          lon: f.center?.[0],
-          lat: f.center?.[1],
-          // small helpers:
-          suburb: f.context?.find(c => c.id?.startsWith("locality"))?.text || "",
-          postcode: f.context?.find(c => c.id?.startsWith("postcode"))?.text || "",
-          state: f.context?.find(c => c.id?.startsWith("region"))?.text || "",
-        }));
-        setItems(next);
+        const out = (data.features || []).map(f => {
+          const [lon, lat] = f.center || [];
+          const props = f.context || [];
+          const byType = Object.fromEntries(
+            props
+              .map(x => [String(x.id || "").split(".")[0], x.text])
+          );
+          return {
+            label: f.place_name,
+            lat, lon,
+            suburb: byType.place || byType.locality || "",
+            state: byType.region || "",
+            postcode: byType.postcode || "",
+          };
+        });
+        setItems(out);
         setOpen(true);
+        setHighlight(-1);
       } catch (e) {
-        if (e.name !== "AbortError") { setItems([]); setOpen(false); }
-      } finally {
-        setLoading(false);
+        console.error("Mapbox search failed:", e);
+        setItems([]);
+        setOpen(false);
       }
-    };
+    }, 300);
+    return () => clearTimeout(id);
+  }, [q]);
 
-    const t = setTimeout(run, 250); // debounce
-    return () => clearTimeout(t);
-  }, [query]);
+  function handleChange(v) {
+    setQ(v);
+    onChange?.(v);
+  }
 
-  function handleSelect(item) {
-    setQuery(item.label);
-    setOpen(false);
+  function choose(item) {
+    setQ(item.label);
     onChange?.(item.label);
-    onSelect?.(item); // {label,lat,lon,suburb,postcode,state}
+    onSelect?.(item);
+    setOpen(false);
+  }
+
+  function onKey(e) {
+    if (!open || items.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlight(h => Math.min(h + 1, items.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlight(h => Math.max(h - 1, 0));
+    } else if (e.key === "Enter" && highlight >= 0) {
+      e.preventDefault();
+      choose(items[highlight]);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
   }
 
   return (
-    <div className="mb-4 relative">
+    <div ref={rootRef} className="relative w-full mb-4">
       <div className="text-sm text-gray-600 mb-1">{label}</div>
       <input
-        value={query}
-        onChange={e => { setQuery(e.target.value); onChange?.(e.target.value); }}
-        onFocus={() => items.length && setOpen(true)}
-        placeholder="e.g., 123 Jetty Rd, Rosebud VIC"
+        value={q}
+        onChange={(e) => handleChange(e.target.value)}
+        onFocus={() => items.length > 0 && setOpen(true)}
+        onKeyDown={onKey}
+        placeholder={placeholder}
         className="w-full h-11 rounded-xl border border-gray-300 px-4 focus:outline-none focus:ring-2 focus:ring-brand-dark"
       />
       {open && items.length > 0 && (
-        <div
-          ref={listRef}
-          className="absolute z-20 mt-1 w-full bg-white rounded-xl border shadow-soft max-h-64 overflow-auto"
-        >
-          {items.map(item => (
+        <div className="absolute z-20 mt-1 w-full rounded-xl border bg-white shadow-soft overflow-hidden">
+          {items.map((it, i) => (
             <button
-              key={item.id}
-              className="w-full text-left px-4 py-2 hover:bg-brand-muted"
-              onMouseDown={e => e.preventDefault()}
-              onClick={() => handleSelect(item)}
+              type="button"
+              key={it.label + i}
+              onMouseDown={() => choose(it)}
+              onMouseEnter={() => setHighlight(i)}
+              className={`w-full text-left px-4 py-2 text-sm ${
+                i === highlight ? "bg-brand-muted" : "hover:bg-gray-50"
+              }`}
             >
-              {item.label}
+              {it.label}
             </button>
           ))}
-          {loading && <div className="px-4 py-2 text-sm text-gray-500">Searching…</div>}
         </div>
       )}
     </div>

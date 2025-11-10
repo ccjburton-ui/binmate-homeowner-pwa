@@ -190,6 +190,7 @@ function Welcome({ onSignIn, onCreate }) {
 function AddProperty({ onBack, onNext, data, setData }) {
   const [addr, setAddr] = useState(data.address || "");
   const [notes, setNotes] = useState(data.notes || "");
+  const [geo, setGeo]   = useState(data.geo || null); // {lat, lon}
 
   return (
     <div className="min-h-screen bg-white">
@@ -203,10 +204,8 @@ function AddProperty({ onBack, onNext, data, setData }) {
           value={addr}
           onChange={setAddr}
           onSelect={(picked) => {
-            // store the human-readable label so it shows in the field
             setAddr(picked.label);
-            // If you want to keep geo in profile immediately:
-            // setData({ ...data, address: picked.label, geo: { lat: picked.lat, lon: picked.lon }, suburb: picked.suburb, state: picked.state, postcode: picked.postcode });
+            setGeo({ lat: picked.lat, lon: picked.lon });
           }}
         />
         <div className="w-full h-28 rounded-2xl border border-dashed border-gray-300 text-gray-500 flex items-center justify-center mb-4">
@@ -214,7 +213,10 @@ function AddProperty({ onBack, onNext, data, setData }) {
         </div>
         <TextArea label="Notes" placeholder="Gate code, pets, parking…" value={notes} onChange={setNotes} />
         <PrimaryButton
-          onClick={() => { setData({ ...data, address: addr, notes }); onNext(); }}
+          onClick={() => {
+            setData({ ...data, address: addr, notes, geo });
+            onNext();
+          }}
           disabled={!addr}
         >
           Next: Bin Setup →

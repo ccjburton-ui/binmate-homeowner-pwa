@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import MapPreview from "./components/MapPreview.jsx";
 import AddressSearch from "./components/AddressSearch.jsx";
 
 // Maps "Mon"..."Sun" to 1..7 (ISO: Mon=1)
@@ -189,32 +190,47 @@ function Welcome({ onSignIn, onCreate }) {
 
 function AddProperty({ onBack, onNext, data, setData }) {
   const [addr, setAddr] = useState(data.address || "");
+  const [picked, setPicked] = useState(null); // from AddressSearch onSelect
   const [notes, setNotes] = useState(data.notes || "");
-  const [geo, setGeo]   = useState(data.geo || null); // {lat, lon}
 
   return (
     <div className="min-h-screen bg-white">
       <Header title="Add Property" onBack={onBack} />
       <div className="max-w-md mx-auto p-5">
-        <div className="w-full h-40 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 mb-4">
-          Map Preview
-        </div>
+
+        {/* Address search */}
         <AddressSearch
           label="Address"
           value={addr}
           onChange={setAddr}
-          onSelect={(picked) => {
-            setAddr(picked.label);
-            setGeo({ lat: picked.lat, lon: picked.lon });
+          onSelect={(p) => {
+            console.log("Address selected:", p);
+            setPicked(p);          // p.lat, p.lon, p.label, etc.
+            setAddr(p.label);
           }}
         />
-        <div className="w-full h-28 rounded-2xl border border-dashed border-gray-300 text-gray-500 flex items-center justify-center mb-4">
-          Upload bin location photo (optional)
-        </div>
-        <TextArea label="Notes" placeholder="Gate code, pets, parking…" value={notes} onChange={setNotes} />
+
+        {/* Map preview (uses picked coords) */}
+        <MapPreview
+          lat={picked?.lat}
+          lon={picked?.lon}
+        />
+
+        {/* Notes + Next button */}
+        <TextArea
+          label="Notes"
+          placeholder="Gate code, pets, parking…"
+          value={notes}
+          onChange={setNotes}
+        />
         <PrimaryButton
           onClick={() => {
-            setData({ ...data, address: addr, notes, geo });
+            setData({
+              ...data,
+              address: addr,
+              geo: picked ? { lat: picked.lat, lon: picked.lon } : undefined,
+              notes,
+            });
             onNext();
           }}
           disabled={!addr}

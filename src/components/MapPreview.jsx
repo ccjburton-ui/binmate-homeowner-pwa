@@ -1,30 +1,31 @@
 // src/components/MapPreview.jsx
-import React from "react";
+export default function MapPreview({ lat, lon }) {
+  const token = import.meta.env.VITE_MAPBOX_TOKEN;
+  console.log("MapPreview props:", { lat, lon, tokenPresent: !!token });
 
-const TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
-
-export default function MapPreview({ lat, lon, zoom = 16, width = 640, height = 240 }) {
-  if (!lat || !lon || !TOKEN) {
+  if (!lat || !lon || !token) {
+    console.warn("MapPreview missing input:", { lat, lon, tokenPresent: !!token });
     return (
-      <div className="w-full h-40 rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400">
-        Map Preview
+      <div className="w-full h-40 rounded-2xl bg-gray-100 border flex items-center justify-center text-gray-500">
+        Map preview unavailable
       </div>
     );
   }
 
-  const url = `https://api.mapbox.com/styles/v1/mapbox/light-v11/static/pin-l+285A98(${lon},${lat})/${lon},${lat},${zoom},0/${width}x${height}@2x?access_token=${TOKEN}`;
+  const url =
+    `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/` +
+    `pin-l+2E3A3A(${lon},${lat})/${lon},${lat},15,0/750x300` +
+    `?access_token=${token}`;
+
+  console.log("MapPreview static URL:", url);
 
   return (
-    <div className="w-full">
-      <img
-        src={url}
-        alt="Location preview"
-        className="w-full h-auto rounded-2xl border"
-        loading="lazy"
-      />
-      <div className="text-[10px] text-gray-500 mt-1">
-        © Mapbox © OpenStreetMap
-      </div>
-    </div>
+    <img
+      src={url}
+      alt="Map preview"
+      className="w-full h-40 rounded-2xl object-cover border"
+      onError={(e) => console.error("Map image failed to load", e)}
+      onLoad={() => console.log("Map image loaded OK")}
+    />
   );
 }

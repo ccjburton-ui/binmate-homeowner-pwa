@@ -1,6 +1,9 @@
 // src/components/MapPreview.jsx
+const DEFAULT_MAPBOX_TOKEN =
+  "pk.eyJ1IjoiZm15YmlucyIsImEiOiJjbWhtaWVsYTQyYXo1MmxxMW9xOGQxbTYxIn0.CGcTed2tafA5-_WjTySPLg";
+
 export default function MapPreview({ lat, lon }) {
-  const token = import.meta.env.VITE_MAPBOX_TOKEN;
+  const token = import.meta.env.VITE_MAPBOX_TOKEN || DEFAULT_MAPBOX_TOKEN;
   console.log("MapPreview props:", { lat, lon, tokenPresent: !!token });
 
   if (!lat || !lon || !token) {

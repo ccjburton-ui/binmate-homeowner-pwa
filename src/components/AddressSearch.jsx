@@ -1,7 +1,10 @@
 // src/components/AddressSearch.jsx
 import React, { useEffect, useRef, useState } from "react";
 
-const MAPBOX_TOKEN = (import.meta.env.VITE_MAPBOX_TOKEN || "").trim();
+const DEFAULT_MAPBOX_TOKEN =
+  "pk.eyJ1IjoiZm15YmlucyIsImEiOiJjbWhtaWVsYTQyYXo1MmxxMW9xOGQxbTYxIn0.CGcTed2tafA5-_WjTySPLg";
+
+const MAPBOX_TOKEN = (import.meta.env.VITE_MAPBOX_TOKEN || DEFAULT_MAPBOX_TOKEN).trim();
 
 export default function AddressSearch({
   label = "Address",

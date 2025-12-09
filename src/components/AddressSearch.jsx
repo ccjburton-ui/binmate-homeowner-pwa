@@ -1,7 +1,60 @@
 // src/components/AddressSearch.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN; // MUST be set
+const DEFAULT_MAPBOX_TOKEN =
+  "pk.eyJ1IjoiZm15YmlucyIsImEiOiJjbWhtaWVsYTQyYXo1MmxxMW9xOGQxbTYxIn0.CGcTed2tafA5-_WjTySPLg";
+
+const MAPBOX_TOKEN = (import.meta.env.VITE_MAPBOX_TOKEN || DEFAULT_MAPBOX_TOKEN).trim();
+
+const MAPBOX_ENDPOINT = "https://api.mapbox.com/geocoding/v5/mapbox.places/";
+const NOMINATIM_ENDPOINT = "https://nominatim.openstreetmap.org/search";
+
+async function fetchMapbox(term, signal) {
+  const url =
+    `${MAPBOX_ENDPOINT}${encodeURIComponent(term)}.json?` +
+    `autocomplete=true&country=AU&limit=5&access_token=${MAPBOX_TOKEN}`;
+  const res = await fetch(url, { signal });
+  if (!res.ok) throw new Error(`Mapbox HTTP ${res.status}`);
+  const data = await res.json();
+  return (data.features || []).map((f) => {
+    const [lon, lat] = f.center || [];
+    const props = f.context || [];
+    const byType = Object.fromEntries(
+      props.map((x) => [String(x.id || "").split(".")[0], x.text])
+    );
+    return {
+      label: f.place_name,
+      lat,
+      lon,
+      suburb: byType.place || byType.locality || "",
+      state: byType.region || "",
+      postcode: byType.postcode || "",
+    };
+  });
+}
+
+async function fetchNominatim(term, signal) {
+  const url = `${NOMINATIM_ENDPOINT}?format=json&addressdetails=1&limit=5&q=${encodeURIComponent(
+    term
+  )}`;
+  const res = await fetch(url, {
+    signal,
+    headers: {
+      "Accept-Language": "en",
+      "User-Agent": "FmyBins/1.0 (support@fmybins.com)",
+    },
+  });
+  if (!res.ok) throw new Error(`Nominatim HTTP ${res.status}`);
+  const data = await res.json();
+  return (data || []).map((f) => ({
+    label: f.display_name,
+    lat: Number(f.lat),
+    lon: Number(f.lon),
+    suburb: f.address?.suburb || f.address?.town || f.address?.city || "",
+    state: f.address?.state || "",
+    postcode: f.address?.postcode || "",
+  }));
+}
 
 export default function AddressSearch({
   label = "Address",
@@ -14,6 +67,7 @@ export default function AddressSearch({
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
+  const [error, setError] = useState("");
   const rootRef = useRef(null);
 
   // keep external value in sync if parent updates it
@@ -30,49 +84,49 @@ export default function AddressSearch({
 
   // debounced search
   useEffect(() => {
-    if (!MAPBOX_TOKEN) {
-      console.warn("VITE_MAPBOX_TOKEN is missing.");
-      return;
-    }
     const term = q?.trim();
     if (!term || term.length < 3) {
       setItems([]);
+      setError("");
       return;
     }
+    const controller = new AbortController();
     const id = setTimeout(async () => {
       try {
-        const url =
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
-          `${encodeURIComponent(term)}.json?` +
-          `autocomplete=true&country=AU&limit=5&access_token=${MAPBOX_TOKEN}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const out = (data.features || []).map(f => {
-          const [lon, lat] = f.center || [];
-          const props = f.context || [];
-          const byType = Object.fromEntries(
-            props
-              .map(x => [String(x.id || "").split(".")[0], x.text])
-          );
-          return {
-            label: f.place_name,
-            lat, lon,
-            suburb: byType.place || byType.locality || "",
-            state: byType.region || "",
-            postcode: byType.postcode || "",
-          };
-        });
+        setError("");
+        let out = [];
+
+        if (MAPBOX_TOKEN) {
+          try {
+            out = await fetchMapbox(term, controller.signal);
+          } catch (mapboxErr) {
+            console.warn("Mapbox lookup failed, using OpenStreetMap fallback", mapboxErr);
+            out = await fetchNominatim(term, controller.signal);
+          }
+        } else {
+          out = await fetchNominatim(term, controller.signal);
+        }
+
+        if (out.length === 0 && MAPBOX_TOKEN) {
+          // Try a second provider if Mapbox returned no matches
+          out = await fetchNominatim(term, controller.signal);
+        }
+
         setItems(out);
-        setOpen(true);
+        setOpen(out.length > 0);
         setHighlight(-1);
       } catch (e) {
-        console.error("Mapbox search failed:", e);
+        if (e.name === "AbortError") return;
+        console.error("Address search failed:", e);
+        setError("Address lookup unavailable right now. Please type your address manually.");
         setItems([]);
         setOpen(false);
       }
     }, 300);
-    return () => clearTimeout(id);
+    return () => {
+      clearTimeout(id);
+      controller.abort();
+    };
   }, [q]);
 
   function handleChange(v) {
@@ -114,6 +168,12 @@ export default function AddressSearch({
         placeholder={placeholder}
         className="w-full h-11 rounded-xl border border-gray-300 px-4 focus:outline-none focus:ring-2 focus:ring-brand-dark"
       />
+      <div className="mt-1 text-xs text-gray-500">
+        Live lookup via {MAPBOX_TOKEN ? "Mapbox" : "OpenStreetMap"}; map preview is just for context.
+      </div>
+      {error && (
+        <div className="mt-1 text-xs text-red-600" role="alert">{error}</div>
+      )}
       {open && items.length > 0 && (
         <div className="absolute z-20 mt-1 w-full rounded-xl border bg-white shadow-soft overflow-hidden">
           {items.map((it, i) => (

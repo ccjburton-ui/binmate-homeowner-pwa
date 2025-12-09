@@ -245,6 +245,12 @@ function AddProperty({ onBack, onNext, data, setData }) {
 function BinSetup({ onBack, onNext, data, setData }) {
   const [bins, setBins] = useState(data.bins || []);
   const [day, setDay] = useState(data.day || "");
+  const [alternateStart, setAlternateStart] = useState(data.alternateStart || "");
+  const [alternateFirst, setAlternateFirst] = useState(data.alternateFirst || "recycling");
+
+  const needsAlternating = bins.includes("recycling") && bins.includes("fogo");
+
+  const canContinue = bins.length > 0 && day && (!needsAlternating || (alternateStart && alternateFirst));
 
   function toggleBin(key) {
     setBins(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
@@ -258,9 +264,49 @@ function BinSetup({ onBack, onNext, data, setData }) {
         <BinChooser selected={bins} onToggle={toggleBin} />
         <WeekdaySelect value={day} onChange={setDay} />
         <div className="text-xs text-gray-500 mb-4">Unsure? We'll auto-suggest based on your council soon.</div>
+
+        {needsAlternating && (
+          <div className="rounded-2xl border border-gray-200 bg-brand-muted/50 p-4 mb-4">
+            <div className="text-sm font-semibold text-gray-800 mb-1">Alternate recycling/FOGO weeks</div>
+            <p className="text-xs text-gray-600 mb-3">
+              General waste is weekly. Recycling and FOGO swap each week—tell us which one starts the cycle and the date of that first pickup.
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              {["recycling", "fogo"].map(binKey => (
+                <button
+                  key={binKey}
+                  onClick={() => setAlternateFirst(binKey)}
+                  className={`h-10 rounded-xl border text-sm font-medium transition ${
+                    alternateFirst === binKey ? "bg-brand-dark text-white border-brand-dark" : "border-gray-300"
+                  }`}
+                >
+                  {binKey === "recycling" ? "Recycling starts" : "FOGO starts"}
+                </button>
+              ))}
+            </div>
+            <Input
+              label="First pickup date for this alternating cycle"
+              type="date"
+              value={alternateStart}
+              onChange={setAlternateStart}
+            />
+          </div>
+        )}
+
         <PrimaryButton
-          onClick={() => { setData({ ...data, bins, day }); onNext(); }}
-          disabled={bins.length === 0 || !day}
+          onClick={() => {
+            const updated = { ...data, bins, day };
+            if (needsAlternating) {
+              updated.alternateStart = alternateStart;
+              updated.alternateFirst = alternateFirst;
+            } else {
+              updated.alternateStart = "";
+              updated.alternateFirst = "";
+            }
+            setData(updated);
+            onNext();
+          }}
+          disabled={!canContinue}
         >
           Next: Access →
         </PrimaryButton>

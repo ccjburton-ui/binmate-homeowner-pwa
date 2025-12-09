@@ -71,7 +71,10 @@ export default function AddressSearch({
             `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&q=${encodeURIComponent(term)}`;
           const res = await fetch(url, {
             signal: controller.signal,
-            headers: { "Accept-Language": "en" },
+            headers: {
+              "Accept-Language": "en",
+              "User-Agent": "FmyBins/1.0 (support@fmybins.com)",
+            },
           });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();

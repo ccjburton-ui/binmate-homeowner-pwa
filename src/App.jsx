@@ -1,22 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import MapPreview from "./components/MapPreview.jsx";
 import AddressSearch from "./components/AddressSearch.jsx";
+import { nextWeekly, nextFortnightly, isFortnightlyThisWeek } from "./utils/schedule.js";
 
-// Maps "Mon"..."Sun" to 1..7 (ISO: Mon=1)
+// Utils you already have:
 const dayIndex = d => ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].indexOf(d) + 1;
-
-// Return the next date (local) for a given weekday code (Mon..Sun)
-function nextWeekdayDate(weekday) {
-  if (!weekday) return null;
-  const target = dayIndex(weekday);
-  const now = new Date();
-  const todayIso = ((now.getDay() + 6) % 7) + 1; // JS Sun=0..Sat=6 -> ISO Mon=1..Sun=7
-  const daysAhead = (target - todayIso + 7) % 7 || 7; // always future
-  const next = new Date(now);
-  next.setDate(now.getDate() + daysAhead);
-  next.setHours(19, 0, 0, 0); // 7 pm start of OUT window
-  return next;
-}
 
 function formatServiceWindow(dt) {
   if (!dt) return "—";
@@ -189,46 +177,63 @@ function Welcome({ onSignIn, onCreate }) {
 }
 
 function AddProperty({ onBack, onNext, data, setData }) {
-  const [addr, setAddr] = useState(data.address || "");
-  const [picked, setPicked] = useState(null); // from AddressSearch onSelect
+  const initialLabel =
+    typeof data.address === "object" && data.address?.label
+      ? data.address.label
+      : (data.address || "");
+
+  const initialObj = typeof data.address === "object" ? data.address : null;
+
+  const [addr, setAddr] = useState(initialLabel);
+  const [addrObj, setAddrObj] = useState(initialObj);
   const [notes, setNotes] = useState(data.notes || "");
+
+  const hasCoords = addrObj?.lat != null && addrObj?.lng != null;
 
   return (
     <div className="min-h-screen bg-white">
       <Header title="Add Property" onBack={onBack} />
       <div className="max-w-md mx-auto p-5">
-
-        {/* Address search */}
         <AddressSearch
           label="Address"
           value={addr}
           onChange={setAddr}
-          onSelect={(p) => {
-            console.log("Address selected:", p);
-            setPicked(p);          // p.lat, p.lon, p.label, etc.
-            setAddr(p.label);
+          onSelect={(picked) => {
+            setAddr(picked?.label || "");
+            setAddrObj(picked || null);
           }}
         />
 
-        {/* Map preview (uses picked coords) */}
-        <MapPreview
-          lat={picked?.lat}
-          lon={picked?.lon}
-        />
+        {addrObj && (
+          <div className="mt-2 text-sm text-gray-600">
+            <div className="font-medium text-brand-fg">{addrObj.label}</div>
+            {hasCoords && (
+              <div>
+                Lat/Lng: {Number(addrObj.lat).toFixed(5)},{" "}
+                {Number(addrObj.lng).toFixed(5)}
+              </div>
+            )}
+          </div>
+        )}
 
-        {/* Notes + Next button */}
+        {hasCoords && (
+          <div className="mt-4">
+            <MapPreview lat={addrObj.lat} lon={addrObj.lng} />
+          </div>
+        )}
+
         <TextArea
           label="Notes"
           placeholder="Gate code, pets, parking…"
           value={notes}
           onChange={setNotes}
         />
+
         <PrimaryButton
           onClick={() => {
             setData({
               ...data,
-              address: addr,
-              geo: picked ? { lat: picked.lat, lon: picked.lon } : undefined,
+              address: addrObj ?? (addr ? { label: addr } : null),
               notes,
             });
             onNext();
@@ -244,10 +249,49 @@ function AddProperty({ onBack, onNext, data, setData }) {
 
 function BinSetup({ onBack, onNext, data, setData }) {
   const [bins, setBins] = useState(data.bins || []);
-  const [day, setDay] = useState(data.day || "");
+  const [day, setDay] = useState(data.day || data?.schedule?.weekday || "");
+  const [startDates, setStartDates] = useState(
+    data.startDates ||
+      data?.schedule?.startDates || { recycling: "", fogo: "" }
+  );
 
   function toggleBin(key) {
-    setBins(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+    setBins((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+    );
+  }
+
+  function DateInput({ label, value, onChange, hint }) {
+    return (
+      <label className="block w-full mb-4">
+        <div className="text-sm text-gray-600 mb-1">{label}</div>
+        <input
+          type="date"
+          value={value || ""}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full h-11 rounded-xl border border-gray-300 px-4 focus:outline-none focus:ring-2 focus:ring-brand-dark"
+        />
+        {hint ? <div className="text-xs text-gray-500 mt-1">{hint}</div> : null}
+      </label>
+    );
+  }
+
+  const needsRecyclingDate = bins.includes("recycling") && !startDates.recycling;
+  const needsFogoDate = bins.includes("fogo") && !startDates.fogo;
+
+  function onSaveAndNext() {
+    setData({
+      ...data,
+      bins,
+      day,
+      startDates,
+      schedule: {
+        weekday: day,
+        startDates,
+      },
+    });
+
+    onNext();
   }
 
   return (
@@ -255,12 +299,62 @@ function BinSetup({ onBack, onNext, data, setData }) {
       <Header title="Bin Setup" onBack={onBack} />
       <div className="max-w-md mx-auto p-5">
         <div className="text-sm text-gray-600">Which bins do you have?</div>
-        <BinChooser selected={bins} onToggle={toggleBin} />
+
+        <div className="grid grid-cols-3 gap-3 my-2">
+          {[
+            { key: "general", label: "General" },
+            { key: "recycling", label: "Recycling" },
+            { key: "fogo", label: "FOGO / Green" },
+          ].map((opt) => {
+            const isOn = bins.includes(opt.key);
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => toggleBin(opt.key)}
+                className={`aspect-square rounded-2xl flex flex-col items-center justify-center border text-center px-2 ${
+                  isOn
+                    ? "border-brand-dark bg-brand-muted"
+                    : "border-gray-300 bg-white"
+                }`}
+              >
+                <div className={`text-2xl mb-1 ${isOn ? "" : "opacity-50"}`}>
+                  🗑️
+                </div>
+                <div className="text-xs font-medium">{opt.label}</div>
+              </button>
+            );
+          })}
+        </div>
+
         <WeekdaySelect value={day} onChange={setDay} />
-        <div className="text-xs text-gray-500 mb-4">Unsure? We'll auto-suggest based on your council soon.</div>
+
+        {/* First collection dates (simple + reliable) */}
+        {bins.includes("recycling") && (
+          <DateInput
+            label="Recycling: first collection date"
+            value={startDates.recycling}
+            onChange={(v) => setStartDates((s) => ({ ...s, recycling: v }))}
+            hint="Pick the next date recycling is collected on your street."
+          />
+        )}
+
+        {bins.includes("fogo") && (
+          <DateInput
+            label="FOGO/Green: first collection date"
+            value={startDates.fogo}
+            onChange={(v) => setStartDates((s) => ({ ...s, fogo: v }))}
+            hint="Pick the next date green/FOGO is collected on your street."
+          />
+        )}
+
+        <div className="text-xs text-gray-500 mt-4">
+          Unsure? We'll auto-suggest based on your council soon.
+        </div>
+
         <PrimaryButton
-          onClick={() => { setData({ ...data, bins, day }); onNext(); }}
-          disabled={bins.length === 0 || !day}
+          onClick={onSaveAndNext}
+          disabled={bins.length === 0 || !day || needsRecyclingDate || needsFogoDate}
         >
           Next: Access →
         </PrimaryButton>
@@ -279,8 +373,8 @@ function AccessInfo({ onBack, onNext, data, setData }) {
       <div className="max-w-md mx-auto p-5">
         <Input label="Gate code (optional)" placeholder="4 digits (stored securely)" value={gate} onChange={setGate} />
         <div className="w-full h-28 rounded-2xl border border-dashed border-gray-300 text-gray-500 flex items-center justify-center mb-4">
-          Upload photo of bin storage area (optional)
-        </div>
+  Upload bin location photo (optional)
+</div>
         <Toggle label="Long or steep driveway (+$15/mo)" checked={driveLong} onChange={setDriveLong} />
         <PrimaryButton onClick={() => { setData({ ...data, gate, driveLong }); onNext(); }}>
           Next: Plan & Payment →
@@ -323,8 +417,26 @@ function PlanPayment({ onBack, onStart, data }) {
 }
 
 function Dashboard({ onOpenSettings, data }) {
-  const nextDt = nextWeekdayDate(data.day || "Tue");
-  const nextService = formatServiceWindow(nextDt);
+  const weekday = data?.schedule?.weekday || data?.day || "Tue"; // fallback to your earlier "day"
+  const bins = data?.bins || ["general"]; // what the user selected on setup
+
+  // Optional: stored start dates for the fortnightly services (ISO "YYYY-MM-DD")
+  const startRecycling = data?.schedule?.startDates?.recycling || null;
+  const startFogo       = data?.schedule?.startDates?.fogo || null;
+
+  // Next dates
+  const nextGeneral   = nextWeekly(weekday);
+  const nextRecycling = bins.includes("recycling") ? nextFortnightly(startRecycling, weekday) : null;
+  const nextFogo      = bins.includes("fogo")      ? nextFortnightly(startFogo, weekday)      : null;
+
+  // "This week" chips
+  const thisWeek = [
+    { key: "general",  label: "General",  on: bins.includes("general") }, // weekly, always shows this week
+    { key: "recycling",label: "Recycling",on: bins.includes("recycling") && isFortnightlyThisWeek(startRecycling, weekday) },
+    { key: "fogo",     label: "FOGO / Green", on: bins.includes("fogo") && isFortnightlyThisWeek(startFogo, weekday) }
+  ].filter(x => x.on);
+
+  const fmt = d => d ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : "—";
 
   return (
     <div className="min-h-screen bg-brand-muted">
@@ -335,21 +447,47 @@ function Dashboard({ onOpenSettings, data }) {
 
       <div className="max-w-md mx-auto p-5">
         <div className="rounded-2xl p-5 bg-white shadow-soft mb-4">
-          <div className="text-sm text-gray-600">Next Service</div>
-          <div className="text-xl font-semibold mb-2">{nextService}</div>
-          <div className="flex gap-2">
-            <button className="px-4 h-10 rounded-xl border">Pause This Week</button>
-            <button className="px-4 h-10 rounded-xl border">Edit Property</button>
+          <div className="text-sm text-gray-600">This Week</div>
+          <div className="flex flex-wrap gap-2 my-2">
+            {thisWeek.length === 0 ? (
+              <span className="text-gray-500 text-sm">No services this week</span>
+            ) : thisWeek.map(b => (
+              <span key={b.key} className="px-2.5 py-1 rounded-full bg-brand-muted text-brand-fg text-sm">
+                {b.label}
+              </span>
+            ))}
           </div>
+
+        <div className="mt-4 text-sm text-gray-600">Next Dates</div>
+        <ul className="mt-1 space-y-1 text-[15px]">
+          <li><span className="font-medium">General:</span> {fmt(nextGeneral)}</li>
+          {bins.includes("recycling") && (
+            <li><span className="font-medium">Recycling:</span> {fmt(nextRecycling)}</li>
+          )}
+          {bins.includes("fogo") && (
+            <li><span className="font-medium">FOGO / Green:</span> {fmt(nextFogo)}</li>
+          )}
+        </ul>
+
+        <div className="flex gap-2 mt-4">
+          <button className="px-4 h-10 rounded-xl border">Pause This Week</button>
+          <button className="px-4 h-10 rounded-xl border" onClick={onOpenSettings}>Edit Property</button>
+        </div>
+      </div>
+
         </div>
         <div className="rounded-2xl p-5 bg-white shadow-soft">
           <div className="text-sm text-gray-600 mb-3">Recent Photos</div>
           <div className="grid grid-cols-3 gap-2">
-            {[1,2,3].map(n => (
-              <div key={n} className="aspect-square rounded-xl bg-gray-100 border flex items-center justify-center text-gray-400">Photo</div>
+            {[1, 2, 3].map((n) => (
+              <div
+                key={n}
+                className="aspect-square rounded-xl bg-gray-100 border flex items-center justify-center text-gray-400"
+              >
+                Photo
+              </div>
             ))}
           </div>
-        </div>
       </div>
     </div>
   );

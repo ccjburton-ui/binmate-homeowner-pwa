@@ -1,136 +1,141 @@
-// src/components/AddressSearch.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 
-const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN; // MUST be set
+const token = import.meta.env.VITE_MAPBOX_TOKEN;
 
 export default function AddressSearch({
-  label = "Address",
   value,
-  onChange,           // (string) typed text
-  onSelect,           // ({ label, lat, lon, suburb, state, postcode }) chosen result
-  placeholder = "e.g., 123 Jetty Rd, Rosebud VIC",
+  onSelect,
+  placeholder = "Search address…",
 }) {
-  const [q, setQ] = useState(value || "");
-  const [items, setItems] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [highlight, setHighlight] = useState(-1);
-  const rootRef = useRef(null);
+  const [q, setQ] = useState(value?.label || "");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState("");
+  const [activeIndex, setActiveIndex] = useState(-1);
 
-  // keep external value in sync if parent updates it
-  useEffect(() => { setQ(value || ""); }, [value]);
+  const canSearch = useMemo(() => (q || "").trim().length >= 3, [q]);
 
-  // close on outside click
   useEffect(() => {
-    function onDocClick(e) {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
+    // Keep input in sync if parent passes a saved value
+    if (value?.label && value.label !== q) setQ(value.label);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value?.label]);
 
-  // debounced search
   useEffect(() => {
-    if (!MAPBOX_TOKEN) {
-      console.warn("VITE_MAPBOX_TOKEN is missing.");
-      return;
-    }
-    const term = q?.trim();
-    if (!term || term.length < 3) {
-      setItems([]);
-      return;
-    }
-    const id = setTimeout(async () => {
-      try {
-        const url =
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/` +
-          `${encodeURIComponent(term)}.json?` +
-          `autocomplete=true&country=AU&limit=5&access_token=${MAPBOX_TOKEN}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const out = (data.features || []).map(f => {
-          const [lon, lat] = f.center || [];
-          const props = f.context || [];
-          const byType = Object.fromEntries(
-            props
-              .map(x => [String(x.id || "").split(".")[0], x.text])
-          );
-          return {
-            label: f.place_name,
-            lat, lon,
-            suburb: byType.place || byType.locality || "",
-            state: byType.region || "",
-            postcode: byType.postcode || "",
-          };
-        });
-        setItems(out);
-        setOpen(true);
-        setHighlight(-1);
-      } catch (e) {
-        console.error("Mapbox search failed:", e);
-        setItems([]);
-        setOpen(false);
+    let cancelled = false;
+
+    async function run() {
+      setErr("");
+      setResults([]);
+      setActiveIndex(-1);
+
+      if (!canSearch) return;
+
+      if (!token) {
+        setErr("Missing VITE_MAPBOX_TOKEN in .env");
+        return;
       }
-    }, 300);
-    return () => clearTimeout(id);
-  }, [q]);
 
-  function handleChange(v) {
-    setQ(v);
-    onChange?.(v);
+      setLoading(true);
+      try {
+        // AU restricted; includes street addresses + places for flexibility
+        const url =
+          "https://api.mapbox.com/geocoding/v5/mapbox.places/" +
+          encodeURIComponent(q) +
+          ".json?autocomplete=true&limit=8&country=AU&types=address,place,locality&access_token=" +
+          encodeURIComponent(token);
+
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
+        const data = await res.json();
+
+        if (cancelled) return;
+
+        const mapped = (data.features || [])
+          .map((f) => ({
+            id: f.id,
+            label: f.place_name,
+            lng: f.center?.[0],
+            lat: f.center?.[1],
+            raw: f,
+          }))
+          .filter((x) => Number.isFinite(x.lat) && Number.isFinite(x.lng));
+
+        setResults(mapped);
+      } catch (e) {
+        if (!cancelled) setErr(e?.message || "Search failed");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    // debounce typing
+    const t = setTimeout(run, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [q, canSearch]);
+
+  function choose(r) {
+    // App expects { label, lat, lng }
+    onSelect?.({ label: r.label, lat: r.lat, lng: r.lng });
+    setQ(r.label);
+    setResults([]);
+    setActiveIndex(-1);
   }
 
-  function choose(item) {
-    setQ(item.label);
-    onChange?.(item.label);
-    onSelect?.(item);
-    setOpen(false);
-  }
+  function onKeyDown(e) {
+    if (!results.length) return;
 
-  function onKey(e) {
-    if (!open || items.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlight(h => Math.min(h + 1, items.length - 1));
+      setActiveIndex((i) => Math.min(i + 1, results.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setHighlight(h => Math.max(h - 1, 0));
-    } else if (e.key === "Enter" && highlight >= 0) {
-      e.preventDefault();
-      choose(items[highlight]);
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      if (activeIndex >= 0 && activeIndex < results.length) {
+        e.preventDefault();
+        choose(results[activeIndex]);
+      }
     } else if (e.key === "Escape") {
-      setOpen(false);
+      setResults([]);
+      setActiveIndex(-1);
     }
   }
 
   return (
-    <div ref={rootRef} className="relative w-full mb-4">
-      <div className="text-sm text-gray-600 mb-1">{label}</div>
+    <div className="space-y-2">
       <input
+        className="w-full h-12 rounded-xl border border-gray-200 px-4"
         value={q}
-        onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => items.length > 0 && setOpen(true)}
-        onKeyDown={onKey}
+        onChange={(e) => setQ(e.target.value)}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
-        className="w-full h-11 rounded-xl border border-gray-300 px-4 focus:outline-none focus:ring-2 focus:ring-brand-dark"
+        autoComplete="off"
       />
-      {open && items.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full rounded-xl border bg-white shadow-soft overflow-hidden">
-          {items.map((it, i) => (
+
+      {err ? <div className="text-sm text-red-600">{err}</div> : null}
+      {loading ? <div className="text-sm text-gray-500">Searching…</div> : null}
+
+      {results.length > 0 ? (
+        <div className="rounded-xl border border-gray-200 overflow-hidden">
+          {results.map((r, idx) => (
             <button
+              key={r.id}
               type="button"
-              key={it.label + i}
-              onMouseDown={() => choose(it)}
-              onMouseEnter={() => setHighlight(i)}
-              className={`w-full text-left px-4 py-2 text-sm ${
-                i === highlight ? "bg-brand-muted" : "hover:bg-gray-50"
+              className={`w-full text-left px-4 py-3 border-b last:border-b-0 ${
+                idx === activeIndex ? "bg-gray-50" : "hover:bg-gray-50"
               }`}
+              onMouseEnter={() => setActiveIndex(idx)}
+              onClick={() => choose(r)}
             >
-              {it.label}
+              <div className="font-medium">{r.label}</div>
             </button>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

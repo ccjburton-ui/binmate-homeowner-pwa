@@ -416,7 +416,7 @@ function PlanPayment({ onBack, onStart, data }) {
   );
 }
 
-function Dashboard({ onOpenSettings, data }) {
+function Dashboard({ onOpenSettings, onOpenOps, data }) {
   const weekday = data?.schedule?.weekday || data?.day || "Tue"; // fallback to your earlier "day"
   const bins = data?.bins || ["general"]; // what the user selected on setup
 
@@ -442,8 +442,23 @@ function Dashboard({ onOpenSettings, data }) {
     <div className="min-h-screen bg-brand-muted">
       <div className="w-full flex items-center justify-between py-4 px-5 sticky top-0 bg-white/80 backdrop-blur z-10 border-b">
         <h1 className="text-lg font-semibold text-brand-fg font-heading">FmyBins</h1>
-        <button onClick={onOpenSettings} className="text-sm px-3 py-1 rounded-full border">Settings</button>
+
+        <div className="flex gap-2">
+        <button
+          onClick={onOpenOps}
+          className="text-sm px-3 py-1 rounded-full border"
+        >
+          Ops
+        </button>
+
+        <button
+          onClick={onOpenSettings}
+          className="text-sm px-3 py-1 rounded-full border"
+        >
+          Settings
+        </button>
       </div>
+    </div>
 
       <div className="max-w-md mx-auto p-5">
         <div className="rounded-2xl p-5 bg-white shadow-soft mb-4">
@@ -518,6 +533,116 @@ function Settings({ onBack }) {
   );
 }
 
+function OpsDashboard({ onBack, data }) {
+  const addrLabel =
+    typeof data?.address === "object" ? data?.address?.label : data?.address;
+
+  const weekday = data?.schedule?.weekday || data?.day || "—";
+  const bins = data?.bins || [];
+  const notes = data?.notes || "";
+  const gate = data?.gate || "";
+  const driveLong = Boolean(data?.driveLong);
+
+  const startRecycling = data?.schedule?.startDates?.recycling || null;
+  const startFogo = data?.schedule?.startDates?.fogo || null;
+
+  const nextGeneral = bins.includes("general") ? nextWeekly(weekday) : null;
+  const nextRecycling = bins.includes("recycling")
+    ? nextFortnightly(startRecycling, weekday)
+    : null;
+  const nextFogo = bins.includes("fogo") ? nextFortnightly(startFogo, weekday) : null;
+
+  const thisWeek = [
+    { key: "general", label: "General", on: bins.includes("general") },
+    {
+      key: "recycling",
+      label: "Recycling",
+      on: bins.includes("recycling") && isFortnightlyThisWeek(startRecycling, weekday),
+    },
+    {
+      key: "fogo",
+      label: "FOGO / Green",
+      on: bins.includes("fogo") && isFortnightlyThisWeek(startFogo, weekday),
+    },
+  ].filter((x) => x.on);
+
+  const fmt = (d) =>
+    d ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : "—";
+
+  return (
+    <div className="min-h-screen bg-white">
+      <Header title="Ops" onBack={onBack} />
+      <div className="max-w-md mx-auto p-5 space-y-4">
+        <div className="rounded-2xl border p-4">
+          <div className="text-xs text-gray-500">Property</div>
+          <div className="text-base font-semibold text-brand-fg">{addrLabel || "—"}</div>
+          {notes ? <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{notes}</div> : null}
+        </div>
+
+        <div className="rounded-2xl border p-4">
+          <div className="text-xs text-gray-500">Access</div>
+          <div className="text-sm mt-1">
+            <span className="font-medium">Gate code:</span> {gate || "—"}
+          </div>
+          <div className="text-sm mt-1">
+            <span className="font-medium">Driveway:</span> {driveLong ? "Long/steep (+$15)" : "Normal"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border p-4">
+          <div className="text-xs text-gray-500">Schedule</div>
+          <div className="text-sm mt-1">
+            <span className="font-medium">Pickup day:</span> {weekday}
+          </div>
+
+          <div className="mt-3 text-sm text-gray-600">This week</div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {thisWeek.length === 0 ? (
+              <span className="text-gray-500 text-sm">No services this week</span>
+            ) : (
+              thisWeek.map((b) => (
+                <span key={b.key} className="px-2.5 py-1 rounded-full bg-brand-muted text-brand-fg text-sm">
+                  {b.label}
+                </span>
+              ))
+            )}
+          </div>
+
+          <div className="mt-4 text-sm text-gray-600">Next dates</div>
+          <ul className="mt-2 space-y-1 text-[15px]">
+            {bins.includes("general") && (
+              <li>
+                <span className="font-medium">General:</span> {fmt(nextGeneral)}
+              </li>
+            )}
+            {bins.includes("recycling") && (
+              <li>
+                <span className="font-medium">Recycling:</span> {fmt(nextRecycling)}
+              </li>
+            )}
+            {bins.includes("fogo") && (
+              <li>
+                <span className="font-medium">FOGO / Green:</span> {fmt(nextFogo)}
+              </li>
+            )}
+          </ul>
+
+          <div className="mt-4 text-sm text-gray-600">Setup data</div>
+          <div className="text-sm mt-1">
+            <span className="font-medium">Bins:</span> {bins.length ? bins.join(", ") : "—"}
+          </div>
+          <div className="text-sm mt-1">
+            <span className="font-medium">Recycling start:</span> {startRecycling || "—"}
+          </div>
+          <div className="text-sm mt-1">
+            <span className="font-medium">FOGO start:</span> {startFogo || "—"}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState("welcome");
   const [profile, setProfile] = useState(() => {
@@ -547,10 +672,17 @@ React.useEffect(() => {
         <PlanPayment onBack={() => setScreen("access")} onStart={() => setScreen("dashboard")} data={profile} />
       )}
       {screen === "dashboard" && (
-        <Dashboard onOpenSettings={() => setScreen("settings")} data={profile} />
+        <Dashboard
+          onOpenSettings={() => setScreen("settings")}
+          onOpenOps={() => setScreen("ops")}
+          data={profile}
+        />
       )}
       {screen === "settings" && (
         <Settings onBack={() => setScreen("dashboard")} />
+      )}
+      {screen === "ops" && (
+        <OpsDashboard onBack={() => setScreen("dashboard")} data={profile} />
       )}
     </div>
   );

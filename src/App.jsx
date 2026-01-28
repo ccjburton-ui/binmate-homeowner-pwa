@@ -645,14 +645,153 @@ function OpsDashboard({ onBack, data }) {
 
 export default function App() {
   const [screen, setScreen] = useState("welcome");
-  const [profile, setProfile] = useState(() => {
-  try { return JSON.parse(localStorage.getItem("FmyBins_profile") || "{}"); }
-  catch { return {}; }
-});
-React.useEffect(() => {
-  try { localStorage.setItem("FmyBins_profile", JSON.stringify(profile)); } catch {}
-}, [profile]);
+  const EMPTY_STATE = {
+    currentUser: { id: "admin-1", role: "admin" },
+    customers: [],
+    providers: [],
+    properties: [],
+    jobs: [],
+    activePropertyId: null,
+  };
 
+  const [appState, setAppState] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("FmyBins_state") || "null");
+      let state = saved && typeof saved === "object" ? saved : EMPTY_STATE;
+
+      // Step 2 migration: if we still have the old "profile" blob, convert it to a property
+      if (state.profile && (!state.properties || state.properties.length === 0)) {
+        const p = state.profile;
+
+        const addrObj = typeof p.address === "object" ? p.address : (p.address ? { label: p.address } : null);
+
+        const newProperty = {
+          id: "prop-1",
+          customerId: null, // we’ll wire customers later
+          address: addrObj,
+          lat: addrObj?.lat ?? null,
+          lng: addrObj?.lng ?? null,
+          notes: p.notes || "",
+          gate: p.gate || "",
+          driveLong: Boolean(p.driveLong),
+          bins: p.bins || [],
+          pickupWeekday: p.schedule?.weekday || p.day || "",
+          startDates: p.schedule?.startDates || p.startDates || { recycling: "", fogo: "" },
+          schedule: p.schedule || null, // keep for now so Dashboard still reads schedule.*
+        };
+
+        state = {
+          ...state,
+          properties: [newProperty],
+          activePropertyId: "prop-1",
+        };
+
+        // remove old key so we don’t keep re-migrating
+        delete state.profile;
+      }
+
+      // Ensure required fields exist
+      return {
+        ...EMPTY_STATE,
+        ...state,
+        properties: state.properties || [],
+        jobs: state.jobs || [],
+        customers: state.customers || [],
+        providers: state.providers || [],
+        activePropertyId: state.activePropertyId || (state.properties?.[0]?.id ?? null),
+      };
+    } catch {
+      return EMPTY_STATE;
+   }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("FmyBins_state", JSON.stringify(appState));
+    } catch {}
+  }, [appState]);
+
+  const activeProperty =
+    appState.properties.find((p) => p.id === appState.activePropertyId) ||
+    appState.properties[0] ||
+    null;
+
+  // compatibility "profile" now means "active property"
+  const profile = activeProperty
+    ? {
+        ...activeProperty,
+        // keep old field names so existing screens keep working
+        address: activeProperty.address,
+        notes: activeProperty.notes,
+        gate: activeProperty.gate,
+        driveLong: activeProperty.driveLong,
+        bins: activeProperty.bins,
+        day: activeProperty.pickupWeekday,
+        startDates: activeProperty.startDates,
+        schedule:
+          activeProperty.schedule || {
+            weekday: activeProperty.pickupWeekday,
+            startDates: activeProperty.startDates,
+          },
+      }
+    : {};
+
+  const setProfile = (updatedProfile) =>
+    setAppState((s) => {
+      const id = s.activePropertyId || s.properties?.[0]?.id;
+      if (!id) {
+        // no property yet: create first one
+        const addrObj = typeof updatedProfile.address === "object"
+          ? updatedProfile.address
+          : (updatedProfile.address ? { label: updatedProfile.address } : null);
+
+        const newProp = {
+          id: "prop-1",
+          customerId: null,
+          address: addrObj,
+          lat: addrObj?.lat ?? null,
+          lng: addrObj?.lng ?? null,
+          notes: updatedProfile.notes || "",
+          gate: updatedProfile.gate || "",
+          driveLong: Boolean(updatedProfile.driveLong),
+          bins: updatedProfile.bins || [],
+          pickupWeekday: updatedProfile.schedule?.weekday || updatedProfile.day || "",
+          startDates: updatedProfile.schedule?.startDates || updatedProfile.startDates || { recycling: "", fogo: "" },
+          schedule: updatedProfile.schedule || null,
+        };
+
+        return {
+          ...s,
+          properties: [newProp],
+          activePropertyId: "prop-1",
+        };
+     }
+
+      // update existing property
+      const props = (s.properties || []).map((p) => {
+        if (p.id !== id) return p;
+
+        const addrObj = typeof updatedProfile.address === "object"
+          ? updatedProfile.address
+          : (updatedProfile.address ? { label: updatedProfile.address } : null);
+
+        return {
+          ...p,
+          address: addrObj,
+          lat: addrObj?.lat ?? p.lat ?? null,
+          lng: addrObj?.lng ?? p.lng ?? null,
+          notes: updatedProfile.notes ?? p.notes,
+          gate: updatedProfile.gate ?? p.gate,
+          driveLong: updatedProfile.driveLong ?? p.driveLong,
+          bins: updatedProfile.bins ?? p.bins,
+          pickupWeekday: updatedProfile.schedule?.weekday || updatedProfile.day || p.pickupWeekday,
+          startDates: updatedProfile.schedule?.startDates || updatedProfile.startDates || p.startDates,
+          schedule: updatedProfile.schedule || p.schedule,
+        };
+      });
+
+      return { ...s, properties: props };
+    });
 
   return (
     <div className="min-h-screen font-[Inter]">

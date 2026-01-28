@@ -13,6 +13,63 @@ function formatServiceWindow(dt) {
   return `${start}, 7–10 pm (Bins Out)`;
 }
 
+function toISODate(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function startOfNextWeekSunday(now = new Date()) {
+  // JS: Sun=0, Mon=1 ... Sat=6
+  // We want the *next* Sunday (if today is Sunday, go to next Sunday, not today)
+  const day = now.getDay();
+  const daysUntilNextSunday = day === 0 ? 7 : 7 - day;
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + daysUntilNextSunday);
+  return d;
+}
+
+function weekdayToJsDay(weekday) {
+  // Your UI uses Mon..Sun
+  const map = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[weekday] ?? null;
+}
+
+function setTime(d, hh, mm) {
+  const x = new Date(d);
+  x.setHours(hh, mm, 0, 0);
+  return x;
+}
+
+function addDays(d, n) {
+  const x = new Date(d);
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function isDueFortnightly(startISO, targetDate) {
+  // startISO is an ISO date string "YYYY-MM-DD" representing a known collection date.
+  if (!startISO) return false;
+  const start = new Date(`${startISO}T00:00:00`);
+  const target = new Date(targetDate);
+  target.setHours(0, 0, 0, 0);
+
+  const diffMs = target.getTime() - start.getTime();
+  const diffDays = Math.round(diffMs / 86400000);
+
+  return diffDays >= 0 && diffDays % 14 === 0;
+}
+
+function makeId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `job_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  }
+}
+
 function Header({ title, onBack }) {
   return (
     <div className="w-full flex items-center justify-between py-4 px-5 sticky top-0 bg-white/80 backdrop-blur z-10 border-b">
@@ -533,7 +590,7 @@ function Settings({ onBack }) {
   );
 }
 
-function OpsDashboard({ onBack, data }) {
+function OpsDashboard({ onBack, data, propertyId, appState, setAppState }) {
   const addrLabel =
     typeof data?.address === "object" ? data?.address?.label : data?.address;
 
@@ -569,10 +626,139 @@ function OpsDashboard({ onBack, data }) {
   const fmt = (d) =>
     d ? d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : "—";
 
+  const nextWeekStart = startOfNextWeekSunday(new Date());
+  const nextWeekStartISO = toISODate(nextWeekStart);
+
+  const jobsForNextWeek = (appState?.jobs || [])
+    .filter((j) => j.propertyId === propertyId && j.weekStartISO === nextWeekStartISO)
+    .sort((a, b) => new Date(a.scheduledFor) - new Date(b.scheduledFor));
+
+  function generateNextWeekJobs() {
+    if (!propertyId) return;
+
+    const props = appState?.properties || [];
+    const prop = props.find((p) => p.id === propertyId);
+    if (!prop) return;
+
+    const pickupWeekday = prop.pickupWeekday || prop?.schedule?.weekday || "";
+    const jsDay = weekdayToJsDay(pickupWeekday);
+    if (jsDay == null) return;
+
+    // Pickup date for that week (Sun..Sat)
+    const pickupDate = addDays(nextWeekStart, (jsDay - 0 + 7) % 7);
+
+    // Determine which bins are due on that pickup date
+    const bins = prop.bins || [];
+    const binTypes = [];
+
+    if (bins.includes("general")) binTypes.push("general");
+    if (bins.includes("recycling") && isDueFortnightly(prop.startDates?.recycling, pickupDate)) {
+      binTypes.push("recycling");
+    }
+    if (bins.includes("fogo") && isDueFortnightly(prop.startDates?.fogo, pickupDate)) {
+      binTypes.push("fogo");
+    }
+
+    // If nothing is due, don’t create jobs
+    if (binTypes.length === 0) return;
+
+    const pickupISO = toISODate(pickupDate);
+    const keyOut = `${propertyId}_bins_out_${pickupISO}`;
+    const keyIn = `${propertyId}_bins_in_${pickupISO}`;
+
+    setAppState((s) => {
+      const existing = s.jobs || [];
+
+      const hasOut = existing.some((j) => j.jobKey === keyOut);
+      const hasIn = existing.some((j) => j.jobKey === keyIn);
+
+      const jobsToAdd = [];
+
+      if (!hasOut) {
+        jobsToAdd.push({
+          id: makeId(),
+          jobKey: keyOut,
+          weekStartISO: nextWeekStartISO,
+          propertyId,
+          providerId: null, // assigned later (per-property per-week)
+          type: "bins_out",
+          binTypes,
+          scheduledFor: setTime(addDays(pickupDate, -1), 19, 0).toISOString(),
+          status: "unassigned",
+        });
+      }
+
+      if (!hasIn) {
+        jobsToAdd.push({
+          id: makeId(),
+          jobKey: keyIn,
+          weekStartISO: nextWeekStartISO,
+          propertyId,
+          providerId: null,
+          type: "bins_in",
+          binTypes,
+          scheduledFor: setTime(pickupDate, 15, 0).toISOString(),
+          status: "unassigned",
+        });
+      }
+
+      if (jobsToAdd.length === 0) return s;
+
+      return { ...s, jobs: [...existing, ...jobsToAdd] };
+    });
+  }
+
+  function fmtJobDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) +
+      " " +
+      d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
   return (
     <div className="min-h-screen bg-white">
       <Header title="Ops" onBack={onBack} />
       <div className="max-w-md mx-auto p-5 space-y-4">
+          <div className="rounded-2xl border p-4">
+          <div className="text-xs text-gray-500">Saturday Batch</div>
+          <div className="text-sm mt-1">
+            Generate jobs for week starting <span className="font-medium">{nextWeekStartISO}</span>
+          </div>
+
+          <div className="mt-3">
+            <button
+              onClick={generateNextWeekJobs}
+              className="w-full h-11 rounded-xl bg-brand-dark text-white font-semibold hover:opacity-90 transition"
+            >
+              Generate Next Week Jobs
+            </button>
+          </div>
+
+          <div className="mt-4 text-sm text-gray-600">Jobs for next week (this property)</div>
+          {jobsForNextWeek.length === 0 ? (
+            <div className="text-sm text-gray-500 mt-2">No jobs generated yet.</div>
+          ) : (
+            <div className="mt-2 space-y-2">
+              {jobsForNextWeek.map((j) => (
+                <div key={j.id} className="rounded-xl border px-3 py-2 bg-white">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">
+                      {j.type === "bins_out" ? "Bins Out" : "Bins In"}
+                    </div>
+                    <div className="text-xs px-2 py-0.5 rounded-full border">
+                      {j.status}
+                    </div>
+                  </div>
+                  <div className="text-sm text-gray-700 mt-1">{fmtJobDate(j.scheduledFor)}</div>
+                  <div className="text-sm text-gray-600 mt-1">
+                    Bins: {Array.isArray(j.binTypes) ? j.binTypes.join(", ") : "—"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="rounded-2xl border p-4">
           <div className="text-xs text-gray-500">Property</div>
           <div className="text-base font-semibold text-brand-fg">{addrLabel || "—"}</div>
@@ -821,8 +1007,15 @@ export default function App() {
         <Settings onBack={() => setScreen("dashboard")} />
       )}
       {screen === "ops" && (
-        <OpsDashboard onBack={() => setScreen("dashboard")} data={profile} />
+        <OpsDashboard
+          onBack={() => setScreen("dashboard")}
+          data={profile}
+          propertyId={activeProperty?.id || null}
+          appState={appState}
+          setAppState={setAppState}
+        />
       )}
+
     </div>
   );
 }

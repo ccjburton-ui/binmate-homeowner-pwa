@@ -629,6 +629,35 @@ function OpsDashboard({ onBack, data, propertyId, appState, setAppState }) {
   const nextWeekStart = startOfNextWeekSunday(new Date());
   const nextWeekStartISO = toISODate(nextWeekStart);
 
+    const providers = (appState.providers || []).filter(p => p.active);
+
+  const assignedProviderId =
+    appState.weeklyAssignments?.[propertyId]?.[nextWeekStartISO] || "";
+
+  function assignProviderForWeek(providerId) {
+    setAppState((s) => {
+      const weekStartISO = nextWeekStartISO;
+
+      const weeklyAssignments = {
+        ...(s.weeklyAssignments || {}),
+        [propertyId]: {
+          ...(s.weeklyAssignments?.[propertyId] || {}),
+          [weekStartISO]: providerId || null,
+        },
+      };
+
+      // Update any jobs already created for this property + week
+      const jobs = (s.jobs || []).map((j) => {
+      const assigned = s.weeklyAssignments?.[propertyId]?.[nextWeekStartISO] || null;
+        if (j.propertyId !== propertyId) return j;
+        if (j.weekStartISO !== weekStartISO) return j;
+        return { ...j, providerId: providerId || null };
+      });
+
+      return { ...s, weeklyAssignments, jobs };
+    });
+  }
+
   const jobsForNextWeek = (appState?.jobs || [])
     .filter((j) => j.propertyId === propertyId && j.weekStartISO === nextWeekStartISO)
     .sort((a, b) => new Date(a.scheduledFor) - new Date(b.scheduledFor));
@@ -668,6 +697,9 @@ function OpsDashboard({ onBack, data, propertyId, appState, setAppState }) {
 
     setAppState((s) => {
       const existing = s.jobs || [];
+      
+      const assigned =
+        s.weeklyAssignments?.[propertyId]?.[nextWeekStartISO] || null;
 
       const hasOut = existing.some((j) => j.jobKey === keyOut);
       const hasIn = existing.some((j) => j.jobKey === keyIn);
@@ -680,7 +712,7 @@ function OpsDashboard({ onBack, data, propertyId, appState, setAppState }) {
           jobKey: keyOut,
           weekStartISO: nextWeekStartISO,
           propertyId,
-          providerId: null, // assigned later (per-property per-week)
+          providerId: assigned,
           type: "bins_out",
           binTypes,
           scheduledFor: setTime(addDays(pickupDate, -1), 19, 0).toISOString(),
@@ -694,7 +726,7 @@ function OpsDashboard({ onBack, data, propertyId, appState, setAppState }) {
           jobKey: keyIn,
           weekStartISO: nextWeekStartISO,
           propertyId,
-          providerId: null,
+          providerId: assigned,
           type: "bins_in",
           binTypes,
           scheduledFor: setTime(pickupDate, 15, 0).toISOString(),
@@ -724,6 +756,25 @@ function OpsDashboard({ onBack, data, propertyId, appState, setAppState }) {
           <div className="text-sm mt-1">
             Generate jobs for week starting <span className="font-medium">{nextWeekStartISO}</span>
           </div>
+
+      <div className="mt-3">
+        <label className="block text-xs text-gray-500 mb-1">
+          Assigned provider (this week)
+        </label>
+
+      <select
+        value={assignedProviderId}
+        onChange={(e) => assignProviderForWeek(e.target.value)}
+        className="w-full h-11 rounded-xl border px-3 bg-white"
+      >
+        <option value="">— Unassigned —</option>
+        {providers.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+    </div>
 
           <div className="mt-3">
             <button
@@ -837,6 +888,7 @@ export default function App() {
     providers: [],
     properties: [],
     jobs: [],
+    weeklyAssignments: {},   // 👈 ADD THIS
     activePropertyId: null,
   };
 
@@ -896,6 +948,19 @@ export default function App() {
       localStorage.setItem("FmyBins_state", JSON.stringify(appState));
     } catch {}
   }, [appState]);
+
+  useEffect(() => {
+  if ((appState.providers || []).length === 0) {
+    setAppState((s) => ({
+      ...s,
+      providers: [
+        { id: "prov-1", name: "Alex", active: true },
+        { id: "prov-2", name: "Jamie", active: true },
+        { id: "prov-3", name: "Taylor", active: true },
+      ],
+    }));
+  }
+}, []);
 
   const activeProperty =
     appState.properties.find((p) => p.id === appState.activePropertyId) ||

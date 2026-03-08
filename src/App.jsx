@@ -12,6 +12,11 @@ function toISODate(d) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function addrWithUnit(property) {
+  const base = typeof property?.address === "object" ? property?.address?.label : property?.address || "";
+  return property?.unit ? `${property.unit}/${base}` : base;
+}
+
 function startOfNextWeekMonday(now = new Date()) {
   const day = now.getDay();
   const daysUntilNextMonday = day === 1 ? 7 : (8 - day) % 7 || 7;
@@ -94,7 +99,7 @@ function autoOffer(jobs, providers, jobId) {
 function sameAddressGroup(properties) {
   const groups = {};
   properties.forEach(p => {
-    const label = typeof p.address === "object" ? p.address?.label : p.address || "";
+    const label = addrWithUnit(p);
     const key   = label.split(",").map(s => s.trim()).slice(-2).join(",").toLowerCase();
     if (!groups[key]) groups[key] = [];
     groups[key].push(p.id);
@@ -534,16 +539,17 @@ function OpsLogin({ onBack, onSuccess }) {
 // ─── ONBOARDING / PROPERTY FLOWS ──────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const STEP_LABELS = ["Address & Type", "Bins & Schedule", "Access"];
+const STEP_LABELS = ["Choose Plan", "Address & Type", "Bins & Schedule", "Access"];
 
 function emptyDraft() {
-  return { type: "Holiday Home", address: null, notes: "", bins: [], pickupWeekday: "",
+  return { type: "Holiday Home", address: null, unit: "", notes: "", bins: [], pickupWeekday: "",
            startDates: { recycling: "", fogo: "", glass: "" }, gate: "", driveLong: false, active: true };
 }
 
 function stepCanProceed(step, draft, plan) {
-  if (step === 0) return !!draft.address && !!draft.type;
-  if (step === 1) {
+  if (step === 0) return !!plan; // plan selection
+  if (step === 1) return !!draft.address && !!draft.type;
+  if (step === 2) {
     if (!draft.bins.length) return false;
     if (plan === "pack") return true;
     if (!draft.pickupWeekday) return false;
@@ -559,7 +565,7 @@ function PropertyFormStep({ step, draft, setDraft, plan }) {
   function toggleBin(key) {
     setDraft(d => ({ ...d, bins: d.bins.includes(key) ? d.bins.filter(k => k !== key) : [...d.bins, key] }));
   }
-  if (step === 0) {
+  if (step === 1) {
     const hasCoords = draft.address?.lat != null && draft.address?.lng != null;
     return (
       <div>
@@ -575,12 +581,15 @@ function PropertyFormStep({ step, draft, setDraft, plan }) {
         {draft.address && <div className="mt-1 text-xs text-gray-400">{draft.address.label}{hasCoords && ` · ${Number(draft.address.lat).toFixed(4)}, ${Number(draft.address.lng).toFixed(4)}`}</div>}
         {hasCoords && <div className="mt-3 mb-1"><MapPreview lat={draft.address.lat} lon={draft.address.lng} /></div>}
         <div className="mt-3">
+          <Input label="Unit / apartment number (optional)" placeholder="e.g. 4B, Unit 12, Apt 3" value={draft.unit || ""} onChange={v => setDraft(d => ({ ...d, unit: v }))} />
+        </div>
+        <div className="mt-1">
           <TextArea label="Access notes (optional)" placeholder="Parking, pets, entry instructions, bin location…" value={draft.notes} onChange={v => setDraft(d => ({ ...d, notes: v }))} />
         </div>
       </div>
     );
   }
-  if (step === 1) {
+  if (step === 2) {
     const isPack = plan === "pack";
     return (
       <div>
@@ -611,7 +620,7 @@ function PropertyFormStep({ step, draft, setDraft, plan }) {
       </div>
     );
   }
-  if (step === 2) {
+  if (step === 3) {
     return (
       <div>
         <Input label="Gate code (optional)" placeholder="e.g. 1234" value={draft.gate} onChange={v => setDraft(d => ({ ...d, gate: v }))} />
@@ -625,14 +634,13 @@ function PropertyFormStep({ step, draft, setDraft, plan }) {
   return null;
 }
 
-function AddPropertyFlow({ onBack, onDone, existingCount, allProperties }) {
+function AddPropertyFlow({ onBack, onDone, existingCount }) {
   const [step, setStep]   = useState(0);
   const [plan, setPlan]   = useState("monthly");
   const [draft, setDraft] = useState(emptyDraft());
 
-  // Steps: 0=address, 1=bins(+schedule if monthly), 2=access
   function next() {
-    if (step < 2) { setStep(s => s + 1); return; }
+    if (step < 3) { setStep(s => s + 1); return; }
     onDone(draft, plan);
   }
 
@@ -640,37 +648,37 @@ function AddPropertyFlow({ onBack, onDone, existingCount, allProperties }) {
     <div className="min-h-screen bg-white">
       <Header onBack={step === 0 ? onBack : () => setStep(s => s - 1)} />
       <div className="max-w-md mx-auto px-5 pb-8">
-        <StepDots current={step} total={3} />
+        <StepDots current={step} total={4} />
         <h2 className="font-heading font-semibold text-xl text-brand-fg mb-0.5">{existingCount === 0 ? "Add your first property" : "Add another property"}</h2>
-        <p className="text-sm text-gray-400 mb-5">Step {step + 1} of 3 — {STEP_LABELS[step]}</p>
-
-        {/* Plan picker shown inline on step 0 (address step), below address */}
-        <PropertyFormStep step={step} draft={draft} setDraft={setDraft} plan={plan} />
+        <p className="text-sm text-gray-400 mb-5">Step {step + 1} of 4 — {STEP_LABELS[step]}</p>
 
         {step === 0 && (
-          <div className="mt-5">
-            <div className="text-sm font-medium text-gray-700 mb-2">Service plan</div>
-            <div className="grid grid-cols-2 gap-2">
-              {PLANS.filter(p => p.key === "monthly" || p.key === "pack").map(p => (
-                <button key={p.key} onClick={() => setPlan(p.key)}
-                  className={`rounded-2xl border-2 p-3 text-left transition ${plan === p.key ? "border-brand-dark bg-brand-muted" : "border-gray-200 hover:border-gray-300"}`}>
-                  <div className="text-lg mb-0.5">{p.emoji}</div>
-                  <div className="font-semibold text-xs text-brand-fg">{p.name}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{p.price}</div>
-                </button>
-              ))}
-            </div>
-            {plan === "pack" && (
-              <div className="mt-2 text-xs text-gray-500 rounded-xl bg-brand-muted px-3 py-2">
-                🎟️ You'll choose a date each time you book — no fixed weekly schedule.
-              </div>
-            )}
+          <div className="space-y-3">
+            {PLANS.map(p => (
+              <button key={p.key} onClick={() => setPlan(p.key)}
+                className={`w-full text-left rounded-2xl border-2 p-4 transition ${plan === p.key ? "border-brand-dark bg-brand-muted" : "border-gray-200 hover:border-gray-300 bg-white"}`}>
+                <div className="flex items-start gap-3">
+                  <div className="text-2xl flex-shrink-0 mt-0.5">{p.emoji}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-brand-fg text-sm">{p.name}</span>
+                      {p.badge && <Badge color={p.key === "urgent" ? "red" : "blue"}>{p.badge}</Badge>}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-0.5">{p.tagline}</div>
+                    <div className="text-xs text-gray-500 mt-1">{p.detail}</div>
+                  </div>
+                  <div className="font-bold text-brand-fg text-sm flex-shrink-0">{p.price}</div>
+                </div>
+              </button>
+            ))}
           </div>
         )}
 
+        {step > 0 && <PropertyFormStep step={step} draft={draft} setDraft={setDraft} plan={plan} />}
+
         <div className="mt-4">
           <PrimaryButton onClick={next} disabled={!stepCanProceed(step, draft, plan)}>
-            {step < 2 ? `Next: ${STEP_LABELS[step + 1]} →` : "Next: Payment →"}
+            {step < 3 ? `Next: ${STEP_LABELS[step + 1]} →` : "Next: Payment →"}
           </PrimaryButton>
         </div>
       </div>
@@ -682,6 +690,7 @@ function EditPropertyFlow({ property, onBack, onSave, onDelete, onChangePlan }) 
   const [step, setStep]         = useState(0);
   const [draft, setDraft]       = useState({
     type: property.type || "Holiday Home", address: property.address || null,
+    unit: property.unit || "",
     notes: property.notes || "", bins: property.bins || [],
     pickupWeekday: property.pickupWeekday || "",
     startDates: property.startDates || { recycling: "", fogo: "", glass: "" },
@@ -709,11 +718,11 @@ function EditPropertyFlow({ property, onBack, onSave, onDelete, onChangePlan }) 
             <Toggle label="" checked={draft.active} onChange={v => setDraft(d => ({ ...d, active: v }))} />
           </div>
         </div>
-        <p className="text-sm text-gray-400 mb-5">Step {step + 1} of 3 — {STEP_LABELS[step]}</p>
+        <p className="text-sm text-gray-400 mb-5">Step {step + 1} of 3 — {STEP_LABELS[step + 1]}</p>
 
-        <PropertyFormStep step={step} draft={draft} setDraft={setDraft} plan={currentPlan} />
+        <PropertyFormStep step={step + 1} draft={draft} setDraft={setDraft} plan={currentPlan} />
 
-        {/* Plan + danger zone — shown on step 1 (address) for easy access */}
+        {/* Plan + danger zone — shown on step 0 (address) for easy access */}
         {step === 0 && (
           <div className="mt-4 space-y-3">
             {/* Current plan */}
@@ -753,8 +762,8 @@ function EditPropertyFlow({ property, onBack, onSave, onDelete, onChangePlan }) 
         )}
 
         <div className="mt-4">
-          <PrimaryButton onClick={next} disabled={!stepCanProceed(step, draft, currentPlan)}>
-            {step < 2 ? `Next: ${STEP_LABELS[step + 1]} →` : "Save Changes"}
+          <PrimaryButton onClick={next} disabled={!stepCanProceed(step + 1, draft, currentPlan)}>
+            {step < 2 ? `Next: ${STEP_LABELS[step + 2]} →` : "Save Changes"}
           </PrimaryButton>
         </div>
       </div>
@@ -883,7 +892,7 @@ function MyProperties({ properties, activePropertyId, groupedIds, onSelect, onAd
           <Card><p className="text-sm text-gray-400 text-center py-6">No properties yet. <button className="text-brand-dark underline" onClick={onAdd}>Add one →</button></p></Card>
         )}
         {properties.map(p => {
-          const label    = typeof p.address === "object" ? p.address?.label : p.address || "—";
+          const label = addrWithUnit(p);
           const isActive = p.id === activePropertyId;
           const plan     = p.plan || "monthly";
           const isPack   = plan === "pack";
@@ -937,7 +946,7 @@ function Dashboard({ data, allProperties, groupedIds, onOpenSettings, onOpenAdHo
     { key: "fogo",      label: "FOGO / Green", on: bins.includes("fogo") && isFortnightlyThisWeek(startFogo, weekday) },
     { key: "glass",     label: "Glass",        on: bins.includes("glass") && isFortnightlyThisWeek(startGlass, weekday) },
   ].filter(x => x.on);
-  const addrLabel   = typeof data?.address === "object" ? data?.address?.label : data?.address;
+  const addrLabel   = addrWithUnit(data);
   const rate        = data?.id ? monthlyRate(data, groupedIds) : null;
   const hasDiscount = data?.id ? groupedIds.has(data.id) : false;
   const plan        = data?.plan || "monthly";
@@ -1083,7 +1092,7 @@ function ServiceRequest({ onBack, allProperties, activePropertyId, appState, set
   const [submitted,    setSubmitted]    = useState(false);
 
   const selectedProp = allProperties.find(p => p.id === propId);
-  const addrLabel    = selectedProp ? (typeof selectedProp.address === "object" ? selectedProp.address?.label : selectedProp.address) : "";
+  const addrLabel    = addrWithUnit(selectedProp);
   const propPlan     = selectedProp?.plan || "monthly";
   const packCredits  = selectedProp?.packCredits ?? 0;
 
@@ -1184,7 +1193,7 @@ function ServiceRequest({ onBack, allProperties, activePropertyId, appState, set
             <select value={propId} onChange={e => setPropId(e.target.value)}
               className="w-full h-11 rounded-xl border border-gray-300 px-4 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-dark">
               {allProperties.map(p => {
-                const label = typeof p.address === "object" ? p.address?.label : p.address || "—";
+                const label = addrWithUnit(p);
                 return <option key={p.id} value={p.id}>{label.split(",")[0]}</option>;
               })}
             </select>
@@ -1377,7 +1386,7 @@ function ProviderPortal({ appState, setAppState, providerId, onSignOut }) {
   // ── Inner job card component ──
   function JobCard({ j }) {
     const prop   = propsById[j.propertyId];
-    const addr   = prop?.address?.label || "—";
+    const addr = addrWithUnit(prop);
     const isDone = j.status === "done";
     return (
       <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
@@ -1469,7 +1478,7 @@ function ProviderPortal({ appState, setAppState, providerId, onSignOut }) {
                 </div>
                 {pendingOffers.map(j => {
                   const prop = propsById[j.propertyId];
-                  const addr = prop?.address?.label || "—";
+                  const addr = addrWithUnit(prop);
                   return (
                     <div key={j.id} className="rounded-2xl border-2 border-amber-500/60 bg-amber-500/10 p-4">
                       <div className="flex items-center justify-between mb-2">
@@ -1517,7 +1526,7 @@ function ProviderPortal({ appState, setAppState, providerId, onSignOut }) {
                 No permanent properties yet. Accept a job offer or claim one from the Pool.
               </div>
             ) : myProperties.map(p => {
-              const label       = typeof p.address === "object" ? p.address?.label : p.address || "—";
+              const label = addrWithUnit(p);
               const shortAddr   = label.split(",")[0];
               const suburb      = label.split(",").slice(1, 3).join(",").trim();
               const isReleasing = releasingPropId === p.id;
@@ -1566,7 +1575,7 @@ function ProviderPortal({ appState, setAppState, providerId, onSignOut }) {
               ? <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center text-white/40 text-sm">No open jobs right now.</div>
               : poolJobs.map(j => {
                 const prop = propsById[j.propertyId];
-                const addr = prop?.address?.label || "—";
+                const addr = addrWithUnit(prop);
                 return (
                   <div key={j.id} className="bg-white/5 border border-white/10 rounded-2xl p-4">
                     <div className="font-semibold text-sm mb-1">{j.type === "bins_out" ? "🚮 Bins Out" : "↩️ Bins In"}</div>
@@ -1604,7 +1613,7 @@ function ProviderPortal({ appState, setAppState, providerId, onSignOut }) {
                 {myProperties.length > 0 && (
                   <div className="border-t border-white/10 pt-2 mt-1 space-y-0.5">
                     {myProperties.map(p => {
-                      const label = typeof p.address === "object" ? p.address?.label : p.address || "—";
+                      const label = addrWithUnit(p);
                       return (
                         <div key={p.id} className="flex justify-between text-xs text-white/50">
                           <span className="truncate mr-2">{label.split(",")[0]}</span>
@@ -1757,7 +1766,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                   🏠 {propsWithoutProvider.length} propert{propsWithoutProvider.length > 1 ? "ies" : "y"} without a permanent provider
                 </div>
                 {propsWithoutProvider.slice(0, 3).map(p => {
-                  const label = typeof p.address === "object" ? p.address?.label : p.address || "—";
+                  const label = addrWithUnit(p);
                   return (
                     <div key={p.id} className="text-xs text-orange-700 flex justify-between py-1 border-b border-orange-100 last:border-0">
                       <span className="truncate mr-2">{label.split(",")[0]}</span>
@@ -1775,7 +1784,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                   const prop = allProperties.find(p => p.id === j.propertyId);
                   return (
                     <div key={j.id} className="text-xs text-red-600 flex justify-between py-1 border-b border-red-200 last:border-0">
-                      <span className="truncate mr-2">🚨 {(prop?.address?.label || "—").split(",")[0]}</span>
+                      <span className="truncate mr-2">🚨 {addrWithUnit(prop).split(",")[0]}</span>
                       <button onClick={() => setTab("jobs")} className="underline flex-shrink-0 font-semibold">Assign →</button>
                     </div>
                   );
@@ -1790,7 +1799,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                   const prop = allProperties.find(p => p.id === j.propertyId);
                   return (
                     <div key={j.id} className="text-xs text-red-600 flex justify-between py-1 border-b border-red-100 last:border-0">
-                      <span className="truncate mr-2">{j.type === "bins_out" ? "Bins Out" : "Bins In"} — {(prop?.address?.label || "—").split(",")[0]}</span>
+                      <span className="truncate mr-2">{j.type === "bins_out" ? "Bins Out" : "Bins In"} — {addrWithUnit(prop).split(",")[0]}</span>
                       <button onClick={() => setTab("jobs")} className="underline flex-shrink-0">Re-offer</button>
                     </div>
                   );
@@ -1805,7 +1814,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                   const prop = allProperties.find(p => p.id === j.propertyId);
                   return (
                     <div key={j.id} className="text-xs text-amber-700 flex justify-between py-1 border-b border-amber-100 last:border-0">
-                      <span className="truncate mr-2">{j.type === "bins_out" ? "Bins Out" : j.type === "bins_in" ? "Bins In" : "Ad Hoc"} — {(prop?.address?.label || "—").split(",")[0]}</span>
+                      <span className="truncate mr-2">{j.type === "bins_out" ? "Bins Out" : j.type === "bins_in" ? "Bins In" : "Ad Hoc"} — {addrWithUnit(prop).split(",")[0]}</span>
                       <button onClick={() => setTab("jobs")} className="underline flex-shrink-0">Offer</button>
                     </div>
                   );
@@ -1856,7 +1865,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
               ? <Card><p className="text-sm text-gray-400 text-center py-4">No jobs yet. Generate a batch above.</p></Card>
               : allJobs.slice().sort((a, b) => new Date(a.scheduledFor) - new Date(b.scheduledFor)).map(j => {
                 const prop      = allProperties.find(p => p.id === j.propertyId);
-                const addr      = prop?.address?.label || "—";
+                const addr = addrWithUnit(prop);
                 const prov      = providers.find(p => p.id === j.providerId);
                 const offeredTo = providers.find(p => p.id === j.offeredTo);
                 const isOffered  = j.status === "offered";
@@ -1917,7 +1926,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
             {allProperties.length === 0
               ? <Card><p className="text-sm text-gray-400 text-center py-4">No properties yet.</p></Card>
               : allProperties.map(p => {
-                const label    = typeof p.address === "object" ? p.address?.label : p.address || "—";
+                const label = addrWithUnit(p);
                 const permProv = providers.find(pr => pr.id === p.permanentProviderId);
                 return (
                   <Card key={p.id} className={!p.permanentProviderId && p.active !== false ? "border-orange-200" : ""}>
@@ -2021,7 +2030,7 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                 ? <p className="text-sm text-gray-400">No properties yet.</p>
                 : <>
                   {allProperties.map(p => {
-                    const label = typeof p.address === "object" ? p.address?.label : p.address || "—";
+                    const label = addrWithUnit(p);
                     const rev   = monthlyRate(p, groupedIds);
                     const cost  = 45 + (p.driveLong ? 15 : 0);
                     const perm  = providers.find(pr => pr.id === p.permanentProviderId);
@@ -2058,6 +2067,7 @@ export default function App() {
   const [screen,             setScreen]             = useState("rolePicker");
   const [loggedInProviderId, setLoggedInProviderId] = useState(null);
   const [editingPropertyId,  setEditingPropertyId]  = useState(null);
+  const [pendingPlan,        setPendingPlan]        = useState("monthly");
 
   const EMPTY_STATE = {
     currentUser: { id: "admin-1", role: "admin" },
@@ -2136,7 +2146,8 @@ export default function App() {
     const id = makeId();
     const newProp = {
       id, type: draft.type || "Holiday Home", customerId: null,
-      address: draft.address, lat: draft.address?.lat ?? null, lng: draft.address?.lng ?? null,
+      address: draft.address, unit: draft.unit || "",
+      lat: draft.address?.lat ?? null, lng: draft.address?.lng ?? null,
       notes: draft.notes || "", gate: draft.gate || "",
       driveLong: Boolean(draft.driveLong), bins: draft.bins || [],
       pickupWeekday: draft.pickupWeekday || "",
@@ -2216,7 +2227,8 @@ export default function App() {
           onDone={(draft, plan) => {
             const id = addProperty(draft, plan);
             setAppState(s => ({ ...s, activePropertyId: s.activePropertyId || id }));
-            setScreen("plan"); // show payment screen, plan already chosen
+            setPendingPlan(plan);
+            setScreen("plan");
           }}
         />
       )}
@@ -2228,7 +2240,7 @@ export default function App() {
           }
           setScreen("dashboard");
         }}
-          property={activeProperty} allProperties={allProperties} />
+          property={activeProperty} allProperties={allProperties} initialPlan={pendingPlan} />
       )}
 
       {screen === "editProperty" && editingProperty && (

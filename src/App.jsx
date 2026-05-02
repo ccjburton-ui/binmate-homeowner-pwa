@@ -1140,6 +1140,7 @@ function planLabel(key) {
 }
 
 const SUPABASE_FUNCTION_URL = "https://iquxbygkkgwsmrmairei.supabase.co/functions/v1/create-checkout";
+const SUPABASE_ANON_KEY     = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlxdXhieWdra2d3c21ybWFpcmVpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcxMTMwMzYsImV4cCI6MjA5MjY4OTAzNn0.cffL4dimRJCQ2DxiOL-zzcg-tZc9sqLztu6FAEje_Dk";
 
 function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, appState, setAppState }) {
   const [selected,  setSelected]  = useState(initialPlan || "monthly");
@@ -1159,8 +1160,12 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
 
       const res = await fetch(SUPABASE_FUNCTION_URL, {
         method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({
+        headers: {
+          "Content-Type":  "application/json",
+          "apikey":        SUPABASE_ANON_KEY,
+          "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({
           plan:       selected,
           propertyId,
           successUrl: `${origin}/?payment=success`,

@@ -12,19 +12,25 @@ const PRICE_IDS: Record<string, string> = {
   urgent:   "price_1TSa1IFizOz6xdHqRgPfgHF5",
 };
 
+const DRIVEWAY_PRICE_IDS: Record<string, string> = {
+  monthly:  "price_1TSaZIFizOz6xdHqSGRLxmBD",
+  once_off: "price_1TSaZeFizOz6xdHqjFxRE4nm",
+  urgent:   "price_1TSaZeFizOz6xdHqjFxRE4nm",
+  pack:     "price_1TSacwFizOz6xdHqYGEg5Ssc",
+};
+
 const corsHeaders = {
   "Access-Control-Allow-Origin":  "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
-    const { plan, propertyId, successUrl, cancelUrl } = await req.json();
+    const { plan, propertyId, driveLong, successUrl, cancelUrl } = await req.json();
 
     const priceId = PRICE_IDS[plan];
     if (!priceId) {
@@ -36,20 +42,21 @@ Deno.serve(async (req) => {
 
     const isMonthly = plan === "monthly";
 
+    const lineItems = [{ price: priceId, quantity: 1 }];
+    if (driveLong && DRIVEWAY_PRICE_IDS[plan]) {
+      lineItems.push({ price: DRIVEWAY_PRICE_IDS[plan], quantity: 1 });
+    }
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      mode: isMonthly ? "subscription" : "payment",
-      success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}&plan=${plan}&property_id=${propertyId}`,
-      cancel_url:  cancelUrl,
+      line_items:           lineItems,
+      mode:                 isMonthly ? "subscription" : "payment",
+      success_url:          `${successUrl}?session_id={CHECKOUT_SESSION_ID}&plan=${plan}&property_id=${propertyId}`,
+      cancel_url:           cancelUrl,
       metadata: {
         plan,
         property_id: propertyId ?? "",
+        drive_long:  driveLong ? "true" : "false",
       },
     });
 

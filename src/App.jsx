@@ -952,7 +952,7 @@ function PropertyFormStep({ step, draft, setDraft, plan }) {
         <div className="w-full h-24 rounded-2xl border border-dashed border-gray-300 text-gray-400 flex flex-col items-center justify-center mb-4 text-sm gap-1">
           <span className="text-xl">📷</span>Upload bin location photo (optional)
         </div>
-        <Toggle label="Long or steep driveway" sub="+$15.00/month" checked={draft.driveLong} onChange={v => setDraft(d => ({ ...d, driveLong: v }))} />
+        <Toggle label="Long or steep driveway" sub="A surcharge applies — details on the next page" checked={draft.driveLong} onChange={v => setDraft(d => ({ ...d, driveLong: v }))} />
       </div>
     );
   }
@@ -1157,6 +1157,7 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
     try {
       const origin     = window.location.origin;
       const propertyId = property?.id || appState?.activePropertyId || "";
+      const driveLong  = property?.driveLong || false;
 
       const res = await fetch(SUPABASE_FUNCTION_URL, {
         method:  "POST",
@@ -1168,6 +1169,7 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
         body: JSON.stringify({
           plan:       selected,
           propertyId,
+          driveLong,
           successUrl: `${origin}/?payment=success`,
           cancelUrl:  `${origin}/?payment=cancel`,
         }),
@@ -1196,7 +1198,14 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
         <div className="space-y-3 mb-6">
           {PLANS.map(plan => {
             const isSelected   = selected === plan.key;
-            const displayPrice = plan.key === "monthly" ? `$${rate.toFixed(2)}/mo` : plan.price;
+            const driveSurcharge = property?.driveLong
+              ? ({ monthly: 15, pack: 45, once_off: 7.50, urgent: 7.50 }[plan.key] ?? 0)
+              : 0;
+            const totalPrice = plan.key === "monthly"
+              ? driveSurcharge > 0 ? `$59.90 + $${driveSurcharge.toFixed(2)}` : `$59.90/mo`
+              : driveSurcharge > 0
+                ? `${plan.price} + $${driveSurcharge.toFixed(2)}`
+                : plan.price;
             return (
               <button key={plan.key} onClick={() => setSelected(plan.key)}
                 className={`w-full text-left rounded-2xl border-2 p-4 transition ${isSelected ? "border-brand-dark bg-brand-muted" : "border-gray-200 hover:border-gray-300 bg-white"}`}>
@@ -1209,9 +1218,14 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5">{plan.tagline}</div>
                     <div className="text-xs text-gray-500 mt-1.5">{plan.detail}</div>
+                    {driveSurcharge > 0 && (
+                      <div className="text-xs text-amber-600 mt-1">
+                        + ${driveSurcharge.toFixed(2)} steep/long driveway surcharge
+                      </div>
+                    )}
                   </div>
                   <div className="text-right flex-shrink-0">
-                    <div className="font-bold text-brand-fg text-sm">{displayPrice}</div>
+                    <div className="font-bold text-brand-fg text-sm">{totalPrice}</div>
                   </div>
                 </div>
               </button>

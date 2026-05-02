@@ -1139,11 +1139,43 @@ function planLabel(key) {
   return PLANS.find(p => p.key === key)?.name || key;
 }
 
+const SUPABASE_FUNCTION_URL = "https://iquxbygkkgwsmrmairei.supabase.co/functions/v1/create-checkout";
+
 function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, appState, setAppState }) {
-  const [selected, setSelected] = useState(initialPlan || "monthly");
-  const [agree,    setAgree]    = useState(false);
+  const [selected,  setSelected]  = useState(initialPlan || "monthly");
+  const [agree,     setAgree]     = useState(false);
+  const [loading,   setLoading]   = useState(false);
+  const [error,     setError]     = useState(null);
   const rate       = property ? monthlyRate(property) : 59.90;
   const isChanging = !!initialPlan;
+
+  async function handleCheckout() {
+    if (!agree) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const origin     = window.location.origin;
+      const propertyId = property?.id || appState?.activePropertyId || "";
+
+      const res = await fetch(SUPABASE_FUNCTION_URL, {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({
+          plan:       selected,
+          propertyId,
+          successUrl: `${origin}/?payment=success`,
+          cancelUrl:  `${origin}/?payment=cancel`,
+        }),
+      });
+
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.url)   window.location.href = data.url;
+    } catch (err) {
+      setError(err.message || "Something went wrong. Please try again.");
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-white">
@@ -1153,15 +1185,13 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
           {isChanging ? "Change Plan" : "Confirm & Pay"}
         </h2>
         <p className="text-sm text-gray-400 mb-5">
-          {isChanging ? "Switch your plan at any time. Changes take effect immediately." : "Review your selected plan and confirm to get started."}
+          {isChanging ? "Switch your plan at any time. Changes take effect immediately." : "Review your selected plan and complete payment to get started."}
         </p>
 
         <div className="space-y-3 mb-6">
           {PLANS.map(plan => {
-            const isSelected = selected === plan.key;
-            const displayPrice = plan.key === "monthly"
-              ? `$${rate.toFixed(2)}/mo`
-              : plan.price;
+            const isSelected   = selected === plan.key;
+            const displayPrice = plan.key === "monthly" ? `$${rate.toFixed(2)}/mo` : plan.price;
             return (
               <button key={plan.key} onClick={() => setSelected(plan.key)}
                 className={`w-full text-left rounded-2xl border-2 p-4 transition ${isSelected ? "border-brand-dark bg-brand-muted" : "border-gray-200 hover:border-gray-300 bg-white"}`}>
@@ -1184,19 +1214,70 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
           })}
         </div>
 
-        <div className="w-full h-36 rounded-2xl bg-gray-50 border border-dashed border-gray-300 text-gray-400 flex flex-col items-center justify-center mb-4 text-sm gap-2">
-          <span className="text-2xl">💳</span>Stripe Checkout
+        {/* Stripe security badge */}
+        <div className="rounded-2xl bg-gray-50 border border-gray-200 px-4 py-3 mb-4 flex items-center gap-3">
+          <span className="text-2xl">🔒</span>
+          <div>
+            <div className="text-sm font-medium text-gray-700">Secure payment via Stripe</div>
+            <div className="text-xs text-gray-400">Your card details are never stored by FmyBins</div>
+          </div>
         </div>
+
+        {error && (
+          <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 mb-4 text-sm text-red-600">
+            ⚠️ {error}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 mb-4">
-          <input id="agree" type="checkbox" className="h-5 w-5 accent-brand-dark" checked={agree} onChange={e => setAgree(e.target.checked)} />
-          <label htmlFor="agree" className="text-sm text-gray-700">I understand this is an early access build.</label>
+          <input id="agree" type="checkbox" className="h-5 w-5 accent-brand-dark"
+            checked={agree} onChange={e => setAgree(e.target.checked)} />
+          <label htmlFor="agree" className="text-sm text-gray-700">
+            I agree to the FmyBins terms of service.
+          </label>
         </div>
-        <PrimaryButton onClick={() => onStart(selected)} disabled={!agree}>
-          {isChanging
-            ? `Switch to ${PLANS.find(p => p.key === selected)?.name} →`
-            : `Confirm ${PLANS.find(p => p.key === selected)?.name} →`}
+
+        <PrimaryButton onClick={handleCheckout} disabled={!agree || loading}>
+          {loading
+            ? "Redirecting to payment…"
+            : isChanging
+              ? `Switch to ${PLANS.find(p => p.key === selected)?.name} →`
+              : `Pay & Start ${PLANS.find(p => p.key === selected)?.name} →`}
         </PrimaryButton>
+
+        {/* Test mode note */}
+        <p className="text-xs text-center text-gray-400 mt-3">
+          🧪 Test mode — use card <span className="font-mono">4242 4242 4242 4242</span>, any future date, any CVC
+        </p>
       </div>
+    </div>
+  );
+}
+
+function PaymentSuccess({ plan, onContinue }) {
+  const planInfo = PLANS.find(p => p.key === plan);
+  return (
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 text-center">
+      <div className="text-6xl mb-4">🎉</div>
+      <h2 className="font-heading font-bold text-2xl text-brand-fg mb-2">Payment Successful!</h2>
+      <p className="text-gray-500 text-sm mb-2">
+        You're all set with the <strong>{planInfo?.name || plan}</strong>.
+      </p>
+      <p className="text-gray-400 text-xs mb-8">
+        A confirmation receipt has been sent to your email by Stripe.
+      </p>
+      <PrimaryButton onClick={onContinue}>Go to Dashboard →</PrimaryButton>
+    </div>
+  );
+}
+
+function PaymentCancelled({ onBack }) {
+  return (
+    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 text-center">
+      <div className="text-5xl mb-4">↩️</div>
+      <h2 className="font-heading font-semibold text-xl text-brand-fg mb-2">Payment Cancelled</h2>
+      <p className="text-gray-400 text-sm mb-8">No charge was made. You can complete payment any time.</p>
+      <PrimaryButton onClick={onBack}>Back to Plan Selection →</PrimaryButton>
     </div>
   );
 }
@@ -3324,6 +3405,25 @@ export default function App() {
   const [loggedInProviderId, setLoggedInProviderId] = useState(null);
   const [editingPropertyId,  setEditingPropertyId]  = useState(null);
   const [pendingPlan,        setPendingPlan]        = useState("monthly");
+  const [paymentResult,      setPaymentResult]      = useState(null); // { status, plan, propertyId }
+
+  // Handle Stripe return redirect
+  useEffect(() => {
+    const params      = new URLSearchParams(window.location.search);
+    const payment     = params.get("payment");
+    const plan        = params.get("plan");
+    const propertyId  = params.get("property_id");
+    if (payment === "success") {
+      setPaymentResult({ status: "success", plan, propertyId });
+      setScreen("paymentResult");
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (payment === "cancel") {
+      setPaymentResult({ status: "cancel" });
+      setScreen("paymentResult");
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, []);
 
   const EMPTY_STATE = {
     currentUser: { id: "admin-1", role: "admin" },
@@ -3566,6 +3666,19 @@ export default function App() {
   return (
     <ErrorBoundary>
     <div className="min-h-screen font-body">
+
+      {screen === "paymentResult" && paymentResult?.status === "success" && (
+        <PaymentSuccess
+          plan={paymentResult.plan}
+          onContinue={() => { setPaymentResult(null); setScreen("dashboard"); }}
+        />
+      )}
+
+      {screen === "paymentResult" && paymentResult?.status === "cancel" && (
+        <PaymentCancelled
+          onBack={() => { setPaymentResult(null); setScreen("plan"); }}
+        />
+      )}
 
       {screen === "rolePicker" && (
         <RolePicker

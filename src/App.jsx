@@ -2,6 +2,14 @@ import React, { useEffect, useRef, useState } from "react";
 import MapPreview from "./components/MapPreview.jsx";
 import AddressSearch from "./components/AddressSearch.jsx";
 import { nextWeekly, nextFortnightly, isFortnightlyThisWeek } from "./utils/schedule.js";
+import {
+  fetchProperties, upsertProperty, deleteProperty as dbDeleteProperty,
+  fetchJobs, upsertJob, upsertJobs, updateJob,
+  fetchProviders, upsertProvider, deleteProvider as dbDeleteProvider,
+  fetchNotifications, insertNotification, markNotificationsRead, clearNotifications,
+  fetchProviderNotifications, insertProviderNotification, clearProviderNotifications,
+  saveSetting, fetchSetting,
+} from "./db.js";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -72,7 +80,32 @@ function fmtShortDate(d) {
 // Returns updated jobs array with next auto-offer applied after a decline.
 // Priority: active providers not in offerHistory, sorted by fewest current jobs.
 
-// ─── Geofencing ───────────────────────────────────────────────────────────────
+// ─── Error Boundary ───────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-white flex flex-col items-center justify-center px-8 text-center">
+          <div className="text-4xl mb-4">⚠️</div>
+          <h2 className="font-heading font-semibold text-xl mb-2">Something went wrong</h2>
+          <p className="text-sm text-gray-500 mb-2">{this.state.error?.message}</p>
+          <pre className="text-xs text-red-500 bg-red-50 rounded-xl p-3 mb-4 text-left max-w-sm overflow-auto">
+            {this.state.error?.stack?.slice(0, 400)}
+          </pre>
+          <button onClick={() => this.setState({ error: null })}
+            className="h-11 px-6 rounded-xl bg-brand-dark text-white font-semibold text-sm">
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+
 
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R    = 6371;
@@ -121,24 +154,10 @@ function autoOffer(jobs, providers, jobId, properties = []) {
     : j);
 }
 
-// ─── Multi-property discount ──────────────────────────────────────────────────
-
-function sameAddressGroup(properties) {
-  const groups = {};
-  properties.forEach(p => {
-    const label = addrWithUnit(p);
-    const key   = label.split(",").map(s => s.trim()).slice(-2).join(",").toLowerCase();
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(p.id);
-  });
-  const grouped = new Set();
-  Object.values(groups).forEach(ids => { if (ids.length > 1) ids.forEach(id => grouped.add(id)); });
-  return grouped;
+function monthlyRate(property) {
+  return 59.90 + (property?.driveLong ? 15.00 : 0);
 }
 
-function monthlyRate(property, groupedIds) {
-  return 59.90 + (property.driveLong ? 15.00 : 0) + (groupedIds.has(property.id) ? -10.00 : 0);
-}
 
 // ─── Bin / property config ────────────────────────────────────────────────────
 
@@ -984,7 +1003,7 @@ function AddPropertyFlow({ onBack, onDone, existingCount, appState, setAppState 
 
         <div className="mt-4">
           <PrimaryButton onClick={next} disabled={!stepCanProceed(step, draft, plan)}>
-            {step < 3 ? `Next: ${STEP_LABELS[step + 1]} →` : "Next: Payment →"}
+            {step < 3 ? `Next: ${STEP_LABELS[step + 1]} →` : "Save Property →"}
           </PrimaryButton>
         </div>
       </div>
@@ -1123,17 +1142,19 @@ function planLabel(key) {
 function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, appState, setAppState }) {
   const [selected, setSelected] = useState(initialPlan || "monthly");
   const [agree,    setAgree]    = useState(false);
-  const groupedIds  = sameAddressGroup([...allProperties, property].filter(Boolean));
-  const rate        = property ? monthlyRate(property, groupedIds) : 59.90;
-  const hasDiscount = property ? groupedIds.has(property.id) : false;
-  const isChanging  = !!initialPlan;
+  const rate       = property ? monthlyRate(property) : 59.90;
+  const isChanging = !!initialPlan;
 
   return (
     <div className="min-h-screen bg-white">
       <Header onBack={onBack} right={<NotifBell appState={appState} setAppState={setAppState} />} />
       <div className="max-w-md mx-auto p-5">
-        <h2 className="font-heading font-semibold text-xl text-brand-fg mb-1">{isChanging ? "Change Plan" : "Choose Your Plan"}</h2>
-        <p className="text-sm text-gray-400 mb-5">{isChanging ? "Switch your plan at any time. Changes take effect immediately." : "You can change this anytime from your dashboard."}</p>
+        <h2 className="font-heading font-semibold text-xl text-brand-fg mb-1">
+          {isChanging ? "Change Plan" : "Confirm & Pay"}
+        </h2>
+        <p className="text-sm text-gray-400 mb-5">
+          {isChanging ? "Switch your plan at any time. Changes take effect immediately." : "Review your selected plan and confirm to get started."}
+        </p>
 
         <div className="space-y-3 mb-6">
           {PLANS.map(plan => {
@@ -1153,9 +1174,6 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
                     </div>
                     <div className="text-xs text-gray-400 mt-0.5">{plan.tagline}</div>
                     <div className="text-xs text-gray-500 mt-1.5">{plan.detail}</div>
-                    {plan.key === "monthly" && hasDiscount && (
-                      <div className="text-xs text-purple-600 font-medium mt-1">Multi-property discount applied ✓</div>
-                    )}
                   </div>
                   <div className="text-right flex-shrink-0">
                     <div className="font-bold text-brand-fg text-sm">{displayPrice}</div>
@@ -1174,15 +1192,17 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
           <label htmlFor="agree" className="text-sm text-gray-700">I understand this is an early access build.</label>
         </div>
         <PrimaryButton onClick={() => onStart(selected)} disabled={!agree}>
-          {isChanging ? `Switch to ${PLANS.find(p => p.key === selected)?.name} →` : `Start with ${PLANS.find(p => p.key === selected)?.name} →`}
+          {isChanging
+            ? `Switch to ${PLANS.find(p => p.key === selected)?.name} →`
+            : `Confirm ${PLANS.find(p => p.key === selected)?.name} →`}
         </PrimaryButton>
       </div>
     </div>
   );
 }
 
-function MyProperties({ properties, activePropertyId, groupedIds, onSelect, onAdd, onEdit, onBack, appState, setAppState }) {
-  const total = properties.reduce((sum, p) => sum + monthlyRate(p, groupedIds), 0);
+function MyProperties({ properties, activePropertyId, onSelect, onAdd, onEdit, onBack, appState, setAppState }) {
+  const total = properties.reduce((sum, p) => sum + monthlyRate(p), 0);
   return (
     <div className="min-h-screen bg-brand-muted">
       <Header onBack={onBack} right={<NotifBell appState={appState} setAppState={setAppState} />} />
@@ -1216,14 +1236,13 @@ function MyProperties({ properties, activePropertyId, groupedIds, onSelect, onAd
                   <div className="text-xs text-gray-400 truncate mb-2">{label.split(",").slice(1, 3).join(",").trim()}</div>
                   <div className="flex flex-wrap gap-1 mb-1.5">
                     <Badge color={planColor}>{planLabel(plan)}</Badge>
-                    {p.driveLong          && <Badge color="yellow">Steep driveway</Badge>}
-                    {groupedIds.has(p.id) && <Badge color="purple">Multi-property −$10</Badge>}
+                    {p.driveLong && <Badge color="yellow">Steep driveway</Badge>}
                   </div>
                   {p.pickupWeekday && <div className="text-xs text-gray-400">📅 {p.pickupWeekday}s</div>}
                   {isPack && <div className="text-xs text-gray-500 mt-0.5">🎟️ {credits} credit{credits !== 1 ? "s" : ""} remaining</div>}
                 </div>
                 <div className="text-right flex-shrink-0">
-                  {plan === "monthly" && <><div className="font-bold text-brand-fg">${monthlyRate(p, groupedIds).toFixed(2)}</div><div className="text-xs text-gray-400">/month</div></>}
+                  {plan === "monthly" && <><div className="font-bold text-brand-fg">${monthlyRate(p).toFixed(2)}</div><div className="text-xs text-gray-400">/month</div></>}
                   {isPack            && <><div className="font-bold text-brand-fg">{credits}</div><div className="text-xs text-gray-400">credits</div></>}
                   <button onClick={e => { e.stopPropagation(); onEdit(p.id); }} className="mt-2 text-xs text-brand-dark underline block">Edit</button>
                 </div>
@@ -1236,7 +1255,7 @@ function MyProperties({ properties, activePropertyId, groupedIds, onSelect, onAd
   );
 }
 
-function Dashboard({ data, allProperties, groupedIds, onOpenSettings, onOpenAdHoc, onOpenProperties, onSignOut, appState, setAppState }) {
+function Dashboard({ data, allProperties, onOpenSettings, onOpenAdHoc, onOpenProperties, onSignOut, appState, setAppState }) {
   const weekday        = data?.schedule?.weekday || data?.day || "";
   const bins           = data?.bins || [];
   const startRecycling = data?.schedule?.startDates?.recycling || null;
@@ -1253,8 +1272,7 @@ function Dashboard({ data, allProperties, groupedIds, onOpenSettings, onOpenAdHo
     { key: "glass",     label: "Glass",        on: bins.includes("glass") && isFortnightlyThisWeek(startGlass, weekday) },
   ].filter(x => x.on);
   const addrLabel   = addrWithUnit(data);
-  const rate        = data?.id ? monthlyRate(data, groupedIds) : null;
-  const hasDiscount = data?.id ? groupedIds.has(data.id) : false;
+  const rate        = data?.id ? monthlyRate(data) : null;
   const plan        = data?.plan || "monthly";
   const packCredits = data?.packCredits ?? 0;
   const isMonthly   = plan === "monthly";
@@ -1291,7 +1309,6 @@ function Dashboard({ data, allProperties, groupedIds, onOpenSettings, onOpenAdHo
             <div className="flex items-end justify-between">
               <div>
                 <div className="font-bold text-2xl font-heading text-brand-fg">${rate.toFixed(2)}<span className="text-sm font-normal text-gray-400">/mo</span></div>
-                {hasDiscount && <div className="text-xs text-purple-600 font-medium">Multi-property discount ✓</div>}
               </div>
               <button onClick={onOpenProperties} className="text-xs text-brand-dark underline">Manage →</button>
             </div>
@@ -2424,11 +2441,10 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
   const allJobs          = appState.jobs        || [];
   const providers        = (appState.providers  || []).filter(p => p.active);
   const allCustomers     = appState.customers   || [];
-  const groupedIds       = sameAddressGroup(allProperties);
   const nextWeekStart    = startOfNextWeekMonday();
   const nextWeekStartISO = toISODate(nextWeekStart);
 
-  const mrr                  = allProperties.reduce((sum, p) => sum + (p.plan === "monthly" ? monthlyRate(p, groupedIds) : 0), 0);
+  const mrr                  = allProperties.reduce((sum, p) => sum + (p.plan === "monthly" ? monthlyRate(p) : 0), 0);
   const providerCost         = allProperties.reduce((sum, p) => sum + 45 + (p.driveLong ? 15 : 0), 0);
   const margin               = mrr - providerCost;
   const unassigned           = allJobs.filter(j => !j.providerId && j.status === "unassigned" && !j.urgent);
@@ -2851,13 +2867,12 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                           <Badge color={p.plan === "monthly" ? "blue" : p.plan === "pack" ? "purple" : "orange"}>{planLabel(p.plan || "monthly")}</Badge>
                           {p.plan === "pack" && <Badge color="gray">🎟️ {p.packCredits ?? 0} credits</Badge>}
                           {p.driveLong          && <Badge color="yellow">Steep</Badge>}
-                          {groupedIds.has(p.id) && <Badge color="purple">Multi-prop −$10</Badge>}
                           {p.active === false    && <Badge color="yellow">Paused</Badge>}
                         </div>
                         <div className="text-xs text-gray-500 mt-1">📅 {p.pickupWeekday || "—"} · {(p.bins || []).map(binLabel).join(", ") || "No bins set"}</div>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <div className="font-bold">${monthlyRate(p, groupedIds).toFixed(2)}</div>
+                        <div className="font-bold">${monthlyRate(p).toFixed(2)}</div>
                         <div className="text-xs text-gray-400">/month</div>
                       </div>
                     </div>
@@ -3272,14 +3287,14 @@ function OpsDashboard({ appState, setAppState, onSignOut }) {
                 : <>
                   {allProperties.map(p => {
                     const label = addrWithUnit(p);
-                    const rev   = monthlyRate(p, groupedIds);
+                    const rev   = monthlyRate(p);
                     const cost  = 45 + (p.driveLong ? 15 : 0);
                     const perm  = providers.find(pr => pr.id === p.permanentProviderId);
                     return (
                       <div key={p.id} className="flex items-center justify-between py-2 border-b last:border-0 text-sm">
                         <div className="flex-1 min-w-0">
                           <div className="font-medium truncate">{label.split(",")[0]}</div>
-                          <div className="text-xs text-gray-400">{p.type}{p.driveLong ? " · steep" : ""}{groupedIds.has(p.id) ? " · multi-prop" : ""}{perm ? ` · ${perm.name}` : " · unassigned"}</div>
+                          <div className="text-xs text-gray-400">{p.type}{p.driveLong ? " · steep" : ""}{perm ? ` · ${perm.name}` : " · unassigned"}</div>
                         </div>
                         <div className="text-right ml-2">
                           <div className="font-semibold">${rev.toFixed(2)}</div>
@@ -3314,59 +3329,161 @@ export default function App() {
     currentUser: { id: "admin-1", role: "admin" },
     customers: [], providers: [], properties: [],
     jobs: [], weeklyAssignments: {}, activePropertyId: null,
+    notifications: [], providerNotifs: [], notifPrefs: null,
   };
 
-  const [appState, setAppState] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem("FmyBins_state") || "null");
-      let state = saved && typeof saved === "object" ? saved : EMPTY_STATE;
-      // Migration: old "profile" blob → first property
-      if (state.profile && (!state.properties || state.properties.length === 0)) {
-        const p = state.profile;
-        const addrObj = typeof p.address === "object" ? p.address : (p.address ? { label: p.address } : null);
-        state = {
-          ...state,
-          properties: [{
-            id: "prop-1", type: "Holiday Home", customerId: null, address: addrObj,
-            lat: addrObj?.lat ?? null, lng: addrObj?.lng ?? null,
-            notes: p.notes || "", gate: p.gate || "", driveLong: Boolean(p.driveLong),
-            bins: p.bins || [], pickupWeekday: p.schedule?.weekday || p.day || "",
-            startDates: p.schedule?.startDates || p.startDates || { recycling: "", fogo: "", glass: "" },
-            schedule: p.schedule || null, active: true,
-          }],
-          activePropertyId: "prop-1",
-        };
-        delete state.profile;
+  const [appState,  setAppState]  = useState(EMPTY_STATE);
+  const [dbLoading, setDbLoading] = useState(true);
+  const [dbError,   setDbError]   = useState(null);
+
+  // ── Load all data from Supabase on mount ──────────────────────────────────
+  useEffect(() => {
+    async function loadAll() {
+      try {
+        const [
+          { data: properties, error: pErr },
+          { data: jobs,       error: jErr },
+          { data: providers,  error: prErr },
+          { data: activeProp, error: apErr },
+          { data: notifPrefs, error: npErr },
+        ] = await Promise.all([
+          fetchProperties(),
+          fetchJobs(),
+          fetchProviders(),
+          fetchSetting("activePropertyId"),
+          fetchSetting("notifPrefs"),
+        ]);
+
+        if (pErr || jErr || prErr) {
+          console.error("DB load error", pErr || jErr || prErr);
+          setDbError("Failed to load data. Check your connection.");
+          setDbLoading(false);
+          return;
+        }
+
+        // Fetch notifications for all properties
+        const propIds = (properties || []).map(p => p.id);
+        const { data: notifications } = propIds.length
+          ? await fetchNotifications(propIds)
+          : { data: [] };
+
+        const activePropertyId = activeProp || properties?.[0]?.id || null;
+
+        // Seed default providers if none exist
+        let finalProviders = providers || [];
+        if (finalProviders.length === 0) {
+          const seeds = [
+            { id: "prov-1", name: "Alex",   username: "alex",   password: "password", active: true, pending: false },
+            { id: "prov-2", name: "Jamie",  username: "jamie",  password: "password", active: true, pending: false },
+            { id: "prov-3", name: "Taylor", username: "taylor", password: "password", active: true, pending: false },
+          ];
+          await Promise.all(seeds.map(p => upsertProvider(p)));
+          finalProviders = seeds;
+        }
+
+        setAppState(s => ({
+          ...s,
+          properties:        properties    || [],
+          jobs:              jobs          || [],
+          providers:         finalProviders,
+          notifications:     notifications || [],
+          providerNotifs:    [],
+          notifPrefs:        notifPrefs    || null,
+          activePropertyId,
+        }));
+      } catch (err) {
+        console.error("Unexpected load error", err);
+        setDbError("Unexpected error loading data.");
       }
-      return {
-        ...EMPTY_STATE, ...state,
-        properties: state.properties || [], jobs: state.jobs || [],
-        customers: state.customers || [], providers: state.providers || [],
-        activePropertyId: state.activePropertyId || (state.properties?.[0]?.id ?? null),
-      };
-    } catch { return EMPTY_STATE; }
-  });
-
-  useEffect(() => {
-    try { localStorage.setItem("FmyBins_state", JSON.stringify(appState)); } catch {}
-  }, [appState]);
-
-  // Seed default providers
-  useEffect(() => {
-    if ((appState.providers || []).length === 0) {
-      setAppState(s => ({
-        ...s,
-        providers: [
-          { id: "prov-1", name: "Alex",   active: true, username: "alex",   password: "password" },
-          { id: "prov-2", name: "Jamie",  active: true, username: "jamie",  password: "password" },
-          { id: "prov-3", name: "Taylor", active: true, username: "taylor", password: "password" },
-        ],
-      }));
+      setDbLoading(false);
     }
+    loadAll();
   }, []);
 
+  // ── Sync setAppState changes to Supabase ──────────────────────────────────
+  // We wrap setAppState to detect what changed and sync only that entity
+  const prevStateRef = useRef(appState);
+
+  useEffect(() => {
+    if (dbLoading) return;
+    const prev = prevStateRef.current;
+    const curr = appState;
+    prevStateRef.current = curr;
+
+    // Properties — upsert changed/added, delete removed
+    if (prev.properties !== curr.properties) {
+      const prevIds = new Set((prev.properties || []).map(p => p.id));
+      const currIds = new Set((curr.properties || []).map(p => p.id));
+      // Upsert changed or new
+      for (const p of curr.properties || []) {
+        const prevP = (prev.properties || []).find(x => x.id === p.id);
+        if (!prevP || JSON.stringify(prevP) !== JSON.stringify(p)) {
+          upsertProperty(p).catch(console.error);
+        }
+      }
+      // Delete removed
+      for (const id of prevIds) {
+        if (!currIds.has(id)) dbDeleteProperty(id).catch(console.error);
+      }
+    }
+
+    // Jobs — upsert changed/added
+    if (prev.jobs !== curr.jobs) {
+      const prevMap = new Map((prev.jobs || []).map(j => [j.id, j]));
+      for (const j of curr.jobs || []) {
+        const prevJ = prevMap.get(j.id);
+        if (!prevJ || JSON.stringify(prevJ) !== JSON.stringify(j)) {
+          upsertJob(j).catch(console.error);
+        }
+      }
+    }
+
+    // Providers — upsert changed/added, delete removed
+    if (prev.providers !== curr.providers) {
+      const prevIds = new Set((prev.providers || []).map(p => p.id));
+      const currIds = new Set((curr.providers || []).map(p => p.id));
+      for (const p of curr.providers || []) {
+        const prevP = (prev.providers || []).find(x => x.id === p.id);
+        if (!prevP || JSON.stringify(prevP) !== JSON.stringify(p)) {
+          upsertProvider(p).catch(console.error);
+        }
+      }
+      for (const id of prevIds) {
+        if (!currIds.has(id)) dbDeleteProvider(id).catch(console.error);
+      }
+    }
+
+    // Active property ID setting
+    if (prev.activePropertyId !== curr.activePropertyId && curr.activePropertyId) {
+      saveSetting("activePropertyId", curr.activePropertyId).catch(console.error);
+    }
+
+    // Notif prefs setting
+    if (prev.notifPrefs !== curr.notifPrefs && curr.notifPrefs) {
+      saveSetting("notifPrefs", curr.notifPrefs).catch(console.error);
+    }
+
+    // New notifications — insert to DB
+    if (prev.notifications !== curr.notifications) {
+      const prevIds = new Set((prev.notifications || []).map(n => n.id));
+      const newNotifs = (curr.notifications || []).filter(n => !prevIds.has(n.id));
+      for (const n of newNotifs) {
+        const propId = (curr.properties || []).find(p => addrWithUnit(p) === n.propertyLabel)?.id || null;
+        insertNotification(n, propId).catch(console.error);
+      }
+    }
+
+    // New provider notifications — insert to DB
+    if (prev.providerNotifs !== curr.providerNotifs) {
+      const prevIds = new Set((prev.providerNotifs || []).map(n => n.id));
+      const newNotifs = (curr.providerNotifs || []).filter(n => !prevIds.has(n.id));
+      for (const n of newNotifs) {
+        insertProviderNotification(n).catch(console.error);
+      }
+    }
+  }, [appState, dbLoading]);
+
   const allProperties   = appState.properties || [];
-  const groupedIds      = sameAddressGroup(allProperties);
   const activeProperty  = allProperties.find(p => p.id === appState.activePropertyId) || allProperties[0] || null;
   const editingProperty = allProperties.find(p => p.id === editingPropertyId) || null;
   const activeProviders = (appState.providers || []).filter(p => p.active);
@@ -3421,7 +3538,33 @@ export default function App() {
     });
   }
 
+  // Loading screen while Supabase data loads
+  if (dbLoading) {
+    return (
+      <div className="min-h-screen bg-brand-muted flex flex-col items-center justify-center gap-4">
+        <div className="text-4xl animate-pulse">🗑️</div>
+        <div className="font-heading font-semibold text-brand-fg text-xl">FmyBins</div>
+        <div className="text-sm text-gray-400">Loading…</div>
+      </div>
+    );
+  }
+
+  if (dbError) {
+    return (
+      <div className="min-h-screen bg-brand-muted flex flex-col items-center justify-center gap-4 px-8 text-center">
+        <div className="text-4xl">⚠️</div>
+        <div className="font-heading font-semibold text-brand-fg text-xl">Connection Error</div>
+        <div className="text-sm text-gray-500">{dbError}</div>
+        <button onClick={() => window.location.reload()}
+          className="mt-2 h-11 px-6 rounded-xl bg-brand-dark text-white font-semibold text-sm hover:opacity-90 transition">
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
   return (
+    <ErrorBoundary>
     <div className="min-h-screen font-body">
 
       {screen === "rolePicker" && (
@@ -3453,7 +3596,13 @@ export default function App() {
         <ProviderLogin
           onBack={() => setScreen("rolePicker")}
           providers={activeProviders}
-          onSuccess={pid => { setLoggedInProviderId(pid); setScreen("providerPortal"); }}
+          onSuccess={async pid => {
+            setLoggedInProviderId(pid);
+            setScreen("providerPortal");
+            // Load this provider's notifications from DB
+            const { data: pNotifs } = await fetchProviderNotifications(pid);
+            setAppState(s => ({ ...s, providerNotifs: pNotifs || [] }));
+          }}
           onSignUp={() => setScreen("providerSignup")}
         />
       )}
@@ -3477,8 +3626,24 @@ export default function App() {
           onBack={() => setScreen(allProperties.length === 0 ? "customerLogin" : "properties")}
           appState={appState} setAppState={setAppState}
           onDone={(draft, plan) => {
-            const id = addProperty(draft, plan);
-            setAppState(s => ({ ...s, activePropertyId: s.activePropertyId || id }));
+            const id = makeId();
+            const newProp = {
+              id, type: draft.type || "Holiday Home", customerId: null,
+              address: draft.address, unit: draft.unit || "",
+              lat: draft.address?.lat ?? null, lng: draft.address?.lng ?? null,
+              notes: draft.notes || "", gate: draft.gate || "",
+              driveLong: Boolean(draft.driveLong), bins: draft.bins || [],
+              pickupWeekday: draft.pickupWeekday || "",
+              startDates: draft.startDates || { recycling: "", fogo: "", glass: "" },
+              schedule: { weekday: draft.pickupWeekday, startDates: draft.startDates },
+              plan, packCredits: plan === "pack" ? 10 : 0,
+              active: true,
+            };
+            setAppState(s => ({
+              ...s,
+              properties: [...(s.properties || []), newProp],
+              activePropertyId: id,
+            }));
             setPendingPlan(plan);
             setScreen("plan");
           }}
@@ -3524,7 +3689,6 @@ export default function App() {
         <MyProperties
           properties={allProperties}
           activePropertyId={appState.activePropertyId}
-          groupedIds={groupedIds}
           onSelect={id => { setAppState(s => ({ ...s, activePropertyId: id })); setScreen("dashboard"); }}
           onAdd={() => setScreen("addProperty")}
           onEdit={id => { setEditingPropertyId(id); setScreen("editProperty"); }}
@@ -3535,7 +3699,7 @@ export default function App() {
 
       {screen === "dashboard" && (
         <Dashboard
-          data={profile} allProperties={allProperties} groupedIds={groupedIds}
+          data={profile} allProperties={allProperties}
           onOpenSettings={()   => setScreen("settings")}
           onOpenAdHoc={()      => setScreen("adhoc")}
           onOpenProperties={() => setScreen("properties")}
@@ -3578,5 +3742,6 @@ export default function App() {
       )}
 
     </div>
+    </ErrorBoundary>
   );
 }

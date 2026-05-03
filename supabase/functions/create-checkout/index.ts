@@ -1,4 +1,4 @@
-import Stripe from "https://esm.sh/stripe@14.21.0?target=deno";
+import Stripe from "https://esm.sh/stripe@13.11.0?target=deno&no-dts";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") ?? "", {
   apiVersion: "2023-10-16",
@@ -30,7 +30,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { plan, propertyId, driveLong, successUrl, cancelUrl } = await req.json();
+    const body = await req.json();
+    const { plan, propertyId, driveLong, successUrl, cancelUrl } = body;
+
+    // Normalise driveLong — could arrive as boolean or string
+    const hasDriveway = driveLong === true || driveLong === "true";
 
     const priceId = PRICE_IDS[plan];
     if (!priceId) {
@@ -42,8 +46,11 @@ Deno.serve(async (req) => {
 
     const isMonthly = plan === "monthly";
 
-    const lineItems = [{ price: priceId, quantity: 1 }];
-    if (driveLong && DRIVEWAY_PRICE_IDS[plan]) {
+    const lineItems: { price: string; quantity: number }[] = [
+      { price: priceId, quantity: 1 },
+    ];
+
+    if (hasDriveway && DRIVEWAY_PRICE_IDS[plan]) {
       lineItems.push({ price: DRIVEWAY_PRICE_IDS[plan], quantity: 1 });
     }
 
@@ -56,7 +63,7 @@ Deno.serve(async (req) => {
       metadata: {
         plan,
         property_id: propertyId ?? "",
-        drive_long:  driveLong ? "true" : "false",
+        drive_long:  hasDriveway ? "true" : "false",
       },
     });
 
@@ -65,7 +72,7 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (err) {
-    console.error("Stripe error:", err);
+    console.error("Stripe error:", err.message);
     return new Response(
       JSON.stringify({ error: err.message }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }

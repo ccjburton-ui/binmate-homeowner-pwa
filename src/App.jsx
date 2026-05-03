@@ -1159,6 +1159,8 @@ function PlanPayment({ onBack, onStart, property, allProperties, initialPlan, ap
       const propertyId = property?.id || appState?.activePropertyId || "";
       const driveLong  = property?.driveLong || false;
 
+      console.log("Checkout debug:", { plan: selected, propertyId, driveLong, property });
+
       const res = await fetch(SUPABASE_FUNCTION_URL, {
         method:  "POST",
         headers: {
